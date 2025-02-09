@@ -1,0 +1,39 @@
+.chatwindow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+.chat-box {
+    border-color: black;
+    border-width: 2px;
+    border-style: solid;
+    border-radius: 10px;
+    background-color: cadetblue;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    width: 80vw;
+    align-items: stretch;
+}
+
+.messages {
+    overflow-y: scroll;
+    flex: 1;
+    width: 100%;
+}
+
+.input-text {
+    padding: 10px;
+    display: flex;
+}
+
+h3 {
+    text-align: center;
+}
+
+#input-text {
+    flex: 1;
+}

@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<form method="post">
+    <div>
+        <h1>Secure Chat</h1>
+        <label>Username</label>
+        <input type="text" placeholder="Enter your name" name="name" value="{{name}}"/>
+        <button type="submit" name="join" class="join" value="{{join}}">Login</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Secure Chat</h1>
+<div class="chat-box">
+    <h3>Welcome {{username}} to the Chat Room!</h3>
+    <div class="messages" id="messages"></div>
+    <div class="input-text">
+        <input type="text" rows="3" placeholder="Enter Message" name="input-text" id="input-text"/>
+        <button type="button" name="send" id="send-btn" onclick="sendMessage()">
+            Send
+        </button>
+    </div>
+</div>
+<script type="text/javascript">
+    
+    let ws;
+    let username = "{{ username }}";
+    
+    ws = new WebSocket("ws://localhost:8765")
+
+    ws.onopen = () => {
+        console.log("WebSocket Connection open from client. Sending username :",username)
+        ws.send(username);  //Sending username first for identification
+    }
+
+    //Displaying received message in our chat-box div
+    const messages = document.getElementById("messages")
+    const showMessage = (msg) =>{
+        const sanitizedMsg = DOMPurify.sanitize(msg);
+        let usrMsgSplit = sanitizedMsg.split(":")
+        const texts = `
+        <div> 
+            <span>
+                <strong>${usrMsgSplit[0]}</strong>: ${usrMsgSplit.slice(1).join(":")}
+            </span>
+        </div>
+        `;
+        messages.innerHTML += texts;
+    };
+
+    //Listening for message event sent from web socket server and displaying in our chat-box
+    ws.onmessage = (event) => {
+        console.log("Received message from WS Server. message :",event.data)
+        showMessage(event.data);
+    };
+
+    //Sending message to the socket server
+    const sendMessage = () => {
+        console.log("Message send to ws from client")
+        const text = document.getElementById("input-text")
+        if (text.value == "")
+            return;
+        
+        // Sanitize the user input using DOMPurify
+        const sanitizedText = DOMPurify.sanitize(text.value);
+
+        if(sanitizedText.trim().length > 0){
+            console.log("Sending sanitized message to WS Server. sanitizedText :",sanitizedText)
+            ws.send(sanitizedText);
+        }
+          
+        text.value = "";
+    };
+
+</script>
+{% endblock %}
