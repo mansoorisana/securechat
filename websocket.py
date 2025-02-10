@@ -3,6 +3,8 @@ import asyncio, websockets, threading, os
 from dotenv import load_dotenv
 
 CONNECTED_CLIENTS = {}
+HEARTBEAT_INTERVAL = 10
+HEARTBEAT_TIMEOUT = 5
 
 #Loading environment variables from .env file
 load_dotenv()
@@ -36,12 +38,22 @@ def chat():
     return render_template("chat.html", username=username)
 
 
+@app.route("/leave")
+def leave_room():
+    session.pop("username", None) #Remove username from session
+    return redirect(url_for("home"))
+
+
 #Broadcast messages to all connected users except the sender.
 async def broadcast_message(sender, message):
     print("Inside broadcast_message")
     for connection in CONNECTED_CLIENTS.values():
-        print("Sending message to broadcast_message")
-        await connection.send(f"{sender}: {message}")
+        try:
+            print("Sending message to broadcast_message")
+            await connection.send(f"{sender}: {message}")
+
+        except websockets.exceptions.ConnectionClosed:
+            continue  #Continue when sending a message to a disconnected WebSocket
 
 
 #Handler for websocket connections & message listening
@@ -51,12 +63,15 @@ async def websocket_server(websocket):
         print("Inside websocket_server")
         username = await websocket.recv()
         CONNECTED_CLIENTS[username] = websocket
-        print("Connected Clients :",CONNECTED_CLIENTS)
+        print("Connected Clients :", CONNECTED_CLIENTS.keys())
         join_msg = f"{username} has joined the chat!"
         await broadcast_message(username,join_msg)
 
         async for message in websocket:
             await broadcast_message(username,message)
+
+    except websockets.exceptions.ConnectionClosed:
+        print(f"Connection closed for {username}")
 
     finally:
         #Remove user on disconnect
@@ -70,7 +85,7 @@ async def websocket_server(websocket):
 
 #Starting the websocket server inside the event loop
 async def start_websocket_server():
-    async with websockets.serve(websocket_server, "localhost", 8765):
+    async with websockets.serve(websocket_server, "localhost", 8765, ping_interval=HEARTBEAT_INTERVAL, ping_timeout=HEARTBEAT_TIMEOUT):
         print("WebSocket server started")
         await asyncio.Future() #Keeps the server running indefinitely
 

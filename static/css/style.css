@@ -6,6 +6,27 @@
     height: 100vh;
 }
 
+.chat-title {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 80vw;
+    padding: 10px;
+    position: relative;
+}
+
+.chat-title h1 {
+    text-align: center;
+    margin: 0;
+    flex-grow: 1
+}
+
+#leave-btn {
+    position: absolute;
+    right: 10px; 
+}
+
 .chat-box {
     border-color: black;
     border-width: 2px;

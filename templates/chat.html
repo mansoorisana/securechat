@@ -1,6 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Secure Chat</h1>
+<div class="chat-title">
+    <h1>Secure Chat</h1>
+    <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
+        Leave Room
+    </button>
+</div>
 <div class="chat-box">
     <h3>Welcome {{username}} to the Chat Room!</h3>
     <div class="messages" id="messages"></div>
@@ -16,12 +21,41 @@
     let ws;
     let username = "{{ username }}";
     
-    ws = new WebSocket("ws://localhost:8765")
+    function connectWebSocket() {
+        ws = new WebSocket("ws://localhost:8765")
 
-    ws.onopen = () => {
-        console.log("WebSocket Connection open from client. Sending username :",username)
-        ws.send(username);  //Sending username first for identification
+        ws.onopen = () => {
+            console.log("WebSocket Connection open from client. Sending username :",username)
+            ws.send(username);  //Sending username first for identification
+        }
+
+        //Listening for message event sent from web socket server and displaying in our chat-box
+        ws.onmessage = (event) => {
+            console.log("Received message from WS Server. message :",event.data)
+            showMessage(event.data);
+        };
+
+        window.addEventListener("beforeunload", () => {
+            ws.close();  // Explicitly close WebSocket when the user closes tab
+        });
+        
+        ws.onclose = (event) => {
+            console.log("WebSocket closed.");
+    
+            //Attempt to reconnect if it was an unexpected disconnection
+            if (!event.wasClean) {
+                console.log("Reconnecting...");
+                setTimeout(connectWebSocket, 3000); // Auto-reconnect after 3 seconds if connection is lost
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            ws.close();
+        };
     }
+
+    connectWebSocket()
 
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
@@ -38,20 +72,13 @@
         messages.innerHTML += texts;
     };
 
-    //Listening for message event sent from web socket server and displaying in our chat-box
-    ws.onmessage = (event) => {
-        console.log("Received message from WS Server. message :",event.data)
-        showMessage(event.data);
-    };
-
-    //Sending message to the socket server
+    //Sending message to the websocket server
     const sendMessage = () => {
-        console.log("Message send to ws from client")
         const text = document.getElementById("input-text")
         if (text.value == "")
             return;
         
-        // Sanitize the user input using DOMPurify
+        //Sanitize the user input using DOMPurify
         const sanitizedText = DOMPurify.sanitize(text.value);
 
         if(sanitizedText.trim().length > 0){
@@ -60,6 +87,13 @@
         }
           
         text.value = "";
+    };
+
+    //Handler for "Leave Room" button
+    const leaveRoom = () => {
+        console.log("Leaving room...");
+        ws.close();
+        window.location.href = "/leave";  //Call Backend for redirection
     };
 
 </script>
