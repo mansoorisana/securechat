@@ -50,9 +50,10 @@ Uses WebSockets for instant communication.
 Messages are broadcast to all connected users in real time.
 
 ### **2️⃣ Connection Handling**  
-New users receive a "joined the chat" message upon connecting.
-Disconnected users trigger a "left the chat" message.
-Only authenticated users can participate in the chat
+New users can Join chat room & receive a "joined the chat" message upon connecting.
+Users can leave the room & trigger a "left the chat" message.
+Users are reconnected in case of interruptions.
+Only authenticated users can participate in the chat.
 
 ---
 
@@ -68,4 +69,3 @@ Only authenticated users can participate in the chat
 │── /static/css  # CSS files
 │   ├── style.css
 │── README.md  # Instructions for running the project
-│── User_Manual.txt  # Optional, step-by-step guide
