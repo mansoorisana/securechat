@@ -22,7 +22,7 @@
     let username = "{{ username }}";
     
     function connectWebSocket() {
-        ws = new WebSocket("ws://localhost:8765")
+        ws = new WebSocket("wss://" + window.location.hostname + ":8765");
 
         ws.onopen = () => {
             console.log("WebSocket Connection open from client. Sending username :",username)
@@ -75,7 +75,7 @@
     //Sending message to the websocket server
     const sendMessage = () => {
         const text = document.getElementById("input-text")
-        if (text.value == "")
+        if (text.value.trim() === "")
             return;
         
         //Sanitize the user input using DOMPurify
@@ -88,6 +88,14 @@
           
         text.value = "";
     };
+
+    // Event listener to input field to capture 'Enter' key
+    document.getElementById("input-text").addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault(); // Prevents the form from submitting normally
+            sendMessage();  // Calls sendMessage() when Enter is pressed
+        }
+    });
 
     //Handler for "Leave Room" button
     const leaveRoom = () => {

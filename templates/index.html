@@ -1,11 +1,63 @@
 {% extends 'base.html' %}
 {% block content %}
-<form method="post">
+<form method="post" id="auth-form">
     <div>
         <h1>Secure Chat</h1>
         <label>Username</label>
-        <input type="text" placeholder="Enter your name" name="name" value="{{name}}"/>
-        <button type="submit" name="join" class="join" value="{{join}}">Login</button>
+        <input type="text" placeholder="Enter your username" name="username" required />
+
+        <label>Password</label>
+        <input type="password" placeholder="Enter your password" name="password" required />
+
+        <button type="button" id="signup-btn">Sign Up</button>
+        <button type="button" id="login-btn">Login</button>
+
+        <div id="message-box" style="margin-top: 10px;"></div> <!-- Message Box -->
     </div>
 </form>
+
+<script>
+    document.getElementById("signup-btn").addEventListener("click", function () {
+        submitAuthForm("signup");
+    });
+
+    document.getElementById("login-btn").addEventListener("click", function () {
+        submitAuthForm("login");
+    });
+
+    async function submitAuthForm(action) {
+        const form = document.getElementById("auth-form");
+        const formData = new FormData(form);
+        formData.append("action", action);  // Ensure action is passed
+
+        console.log("Submitting form data:", Object.fromEntries(formData));  // Debugging
+
+        try {
+            const response = await fetch("/home", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+            console.log("Server response:", data);  // Debugging
+
+            let messageBox = document.getElementById("message-box");
+            if (response.status === 201) {  // Signup successful
+                messageBox.style.color = "green";
+                messageBox.innerText = data.message;
+            } else if (response.status === 200 && data.redirect) {  // Login successful
+                console.log("Redirecting to:", data.redirect);
+                window.location.href = data.redirect;
+            } else {
+                messageBox.style.color = "red";
+                messageBox.innerText = data.message;  // Show error message
+            }
+        } catch (error) {
+            console.error("Error during fetch:", error);
+        }
+    }
+</script>
+
+
+
 {% endblock %}
