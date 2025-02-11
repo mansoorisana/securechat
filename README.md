@@ -37,11 +37,22 @@ SECRET_KEY=your-secure-random-key
 Replace 'your-secure-random-key' with a randomly generated secure key.
 
 ### **4️⃣ Generate SSL Certificates (Self-Signed)**
-To enable secure WebSocket (wss://) communication, generate SSL certificates
+SecureChat requires an SSL certificate to enable **encrypted WebSocket (wss://) communication**.
+
+Running the following command will create an SSL certificate and key with default filenames:
+
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout your_key.pem -out your_cert.pem -days 365 -nodes
 ```
-Replace 'your_key.pem" and "your_cert.pem with your own desired file names
+
+### **Custom SSL Certificate Names(Only if neccessary)**
+If you used different filenames for your cetificate and private key, add them to an .env file:
+
+```bash
+SSL_CERT_PATH=your_custom_cert.pem
+SSL_KEY_PATH=your_custom_key.pem
+```
+Replace your_custom_cert.pem and your_custom_key.pem with your actual variable names.
 
 
 ### **5️⃣ Run the Application**
@@ -67,9 +78,9 @@ The application will be available at:
 - Messages are broadcast to all connected users in real-time. 
 
 ### **2️⃣ Connection Handling**  
-New users can Join the chat room & receive a "joined the chat" message upon connecting.
-Users can leave the room & trigger a "left the chat" message.
-Users are reconnected in case of interruptions.
+- New users can Join the chat room & receive a "joined the chat" message upon connecting.
+- Users can leave the room & trigger a "left the chat" message.
+- Users are reconnected in case of interruptions.
 
 ### **4️⃣ Secure Communication  
 - **SSL/TLS Encryption** ensures all WebSocket messages are protected.  
