@@ -5,7 +5,7 @@ Group23_key.pem
 .env
 users.db
 
-# Ignore Python virtual environments
+#  Ignore Python virtual environments
 venv/
 __pycache__/
 *.pyc
