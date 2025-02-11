@@ -45,7 +45,7 @@ Running the following command will create an SSL certificate and key with defaul
 openssl req -x509 -newkey rsa:4096 -keyout your_key.pem -out your_cert.pem -days 365 -nodes
 ```
 
-### **Custom SSL Certificate Names(Only if neccessary)**
+### **⚠️Custom SSL Certificate Names(Only if neccessary)**
 If you used different filenames for your cetificate and private key, add them to an .env file:
 
 ```bash
