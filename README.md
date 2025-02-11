@@ -15,7 +15,6 @@ It enables multiple users to connect, send messages instantly, and handle connec
 - **Flask-Limiter** – Prevents spamming with rate limiting.
 - **SSL/TLS Encryption** – Secures WebSocket communication.
 - **SQLite** – Lightweight database for user authentication.
-- **Gunicorn** – Production-ready WSGI server for deployment.
 ---
 
 ## 📌 Installation  
@@ -58,25 +57,25 @@ The application will be available at:
 
 ## 📌 Features
 
-### **1️⃣  User Authentication  
+### **1️⃣ User Authentication  
 - Users must **sign up** before logging in.  
 - Passwords are securely hashed with **Flask-Bcrypt**.  
 - Only authenticated users can participate in the chat. 
 
-### **2️⃣R eal-Time Messaging  
+### **2️⃣ Real-Time Messaging  
 - Uses **WebSockets** for instant communication.  
-- Messages are broadcast to all connected users in real time. 
+- Messages are broadcast to all connected users in real-time. 
 
 ### **2️⃣ Connection Handling**  
-New users can Join chat room & receive a "joined the chat" message upon connecting.
+New users can Join the chat room & receive a "joined the chat" message upon connecting.
 Users can leave the room & trigger a "left the chat" message.
 Users are reconnected in case of interruptions.
 
-### **4️⃣  Secure Communication  
+### **4️⃣ Secure Communication  
 - **SSL/TLS Encryption** ensures all WebSocket messages are protected.  
 - Uses **wss://**  for secure communication.  
 
-### **5️⃣  Rate Limiting  
+### **5️⃣ Rate Limiting  
 - Prevents spamming by **limiting messages per user**.  
 - Uses **Flask-Limiter** to restrict **max messages per minute**.  
 ---
@@ -99,8 +98,4 @@ Users are reconnected in case of interruptions.
 │── users.db           # SQLite Database (Not committed to Git)
 ```
 
-## 📌 Security Considerations
-- **Do not commit sensitive files** (`.env`, `.pem` files, `users.db`) to Git.
-- **Enable HTTPS** by using SSL/TLS encryption.
-- **Use a production-ready WSGI server** (Gunicorn) for deployment.
 
