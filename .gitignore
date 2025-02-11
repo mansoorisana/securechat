@@ -1,8 +1,18 @@
-# Ignore SSL certificate and private key files
+# Ignore sensitive info
 *.pem
 Group23_cert.pem
 Group23_key.pem
-
-# Ignore environment files
 .env
+users.db
 
+# Ignore Python virtual environments
+venv/
+__pycache__/
+*.pyc
+
+# Ignore IDE-specific files
+*.vscode/
+*.DS_Store
+
+# Ignore logs and cache
+*.log
