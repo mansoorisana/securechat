@@ -1,2 +1,8 @@
+# Ignore SSL certificate and private key files
 *.pem
+Group23_cert.pem
+Group23_key.pem
+
+# Ignore environment files
 .env
+
