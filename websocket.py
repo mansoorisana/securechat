@@ -3,8 +3,6 @@ import asyncio, websockets, threading, os
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 import time
 import ssl 
 
@@ -19,10 +17,6 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
 
-# Initializing flask app
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
-
 # Configuring the database
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -31,8 +25,6 @@ db = SQLAlchemy(app)
 # Password hashing
 bcrypt = Bcrypt(app)
 
-# Rate limiting
-limiter = Limiter(get_remote_address, app=app, default_limits=["12 per minute"])
 
 # User model
 class User(db.Model):
@@ -45,7 +37,6 @@ class User(db.Model):
 def create_database():
     with app.app_context():
         db.create_all()
-        print("Database initialized successfully!")  # Debugging
 
 create_database()
         
