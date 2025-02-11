@@ -1,10 +1,9 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify
-import asyncio, websockets, threading, os
+import asyncio, websockets, threading, os, time, sys, ssl 
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-import time
-import ssl 
+
 
 CONNECTED_CLIENTS = {}
 HEARTBEAT_INTERVAL = 10
@@ -13,7 +12,7 @@ HEARTBEAT_TIMEOUT = 5
 #Loading environment variables from .env file
 load_dotenv()
 
-#Initializing flask app
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
 
@@ -39,7 +38,19 @@ def create_database():
         db.create_all()
 
 create_database()
-        
+
+
+SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "your_cert.pem") 
+SSL_KEY_PATH = os.getenv("SSL_KEY_PATH", "your_key.pem")     
+
+if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
+    print("\n SSL Certificate and Key not found. ")
+    print("Please use the instructions in README.md to create SSL cert before running the server.\n")
+    sys.exit(1) 
+
+SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
+
 @app.route("/")
 def index():
     return redirect(url_for("home"))
@@ -162,11 +173,6 @@ async def websocket_server(websocket):
             del CONNECTED_CLIENTS[username]
             left_msg = f"{username} has left the chat!"
             await broadcast_message(username,left_msg)
-            
-
-# Load SSL Certificate
-SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-SSL_CONTEXT.load_cert_chain(certfile="Group23_cert.pem", keyfile="Group23_key.pem")
 
 #Starting the websocket server inside the event loop
 async def start_websocket_server():
@@ -182,13 +188,15 @@ async def start_websocket_server():
 
 
 def run_flask():
-    #Running Flask in a separate thread
-    app.run(debug=True, port=5000, ssl_context=("Group23_cert.pem", "Group23_key.pem"))
+    # Running Flask in a separate thread with SSL
+    app.run(debug=True, port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH))
+
 
 
 if __name__ == '__main__':
     #Starting Flask in main thread with SSL
-    flask_thread = threading.Thread(target=lambda: app.run(port=5000, ssl_context=("Group23_cert.pem", "Group23_key.pem"), use_reloader=False), daemon=True)
+    flask_thread = threading.Thread(
+        target=lambda: app.run(port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH), use_reloader=False),daemon=True)
     flask_thread.start()
 
     #Running WebSocket server in the main event loop
