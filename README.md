@@ -93,9 +93,6 @@ Users are reconnected in case of interruptions.
 │── /static/css        # CSS files
 │   ├── style.css      # Styling for UI
 │── README.md          # Instructions for running the project
-│── Group23_cert.pem   # SSL Certificate (Not committed to Git)
-│── Group23_key.pem    # SSL Private Key (Not committed to Git)
-│── users.db           # SQLite Database (Not committed to Git)
 ```
 
 
