@@ -39,18 +39,21 @@ def create_database():
 
 create_database()
 
+# ssl cert implementation 
 
 SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "your_cert.pem") 
 SSL_KEY_PATH = os.getenv("SSL_KEY_PATH", "your_key.pem")     
 
 if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
-    print("\n SSL Certificate and Key not found. ")
+    print("SSL Certificate and Key not found. ")
     print("Please use the instructions in README.md to create SSL cert before running the server.\n")
     sys.exit(1) 
 
 SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
 
+
+# auto redirects url to /home 
 @app.route("/")
 def index():
     return redirect(url_for("home"))
@@ -79,7 +82,7 @@ def home():
         elif action == "login":
             user = User.query.filter_by(username=username).first()
             if user and bcrypt.check_password_hash(user.password, password):
-                session["username"] = username  # Store username in session
+                session["username"] = username  
                 return jsonify({"redirect": url_for('chat')}), 200
 
             return jsonify({"message": "Invalid username and/or password."}), 401
