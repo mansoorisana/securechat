@@ -3,4 +3,3 @@ flask-sqlalchemy
 flask-bcrypt
 websockets
 python-dotenv
-gunicorn
