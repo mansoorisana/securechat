@@ -62,7 +62,7 @@ python websocket.py
 ```
 
 The application will be available at:
-🔗 http://localhost:5000/home
+🔗 https://localhost:5000/home
 
 ---
 
