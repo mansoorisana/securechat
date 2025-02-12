@@ -6,8 +6,13 @@ from flask_bcrypt import Bcrypt
 
 
 CONNECTED_CLIENTS = {}
-HEARTBEAT_INTERVAL = 10
-HEARTBEAT_TIMEOUT = 5
+HEARTBEAT_INTERVAL = 10  #seconds
+HEARTBEAT_TIMEOUT = 5  #seconds
+USER_MESSAGE_TIMESTAMPS = {} 
+MUTED_USERS = {}  # Store muted users and when they can send again
+MESSAGE_RATE_LIMIT = 5  # of msgs
+TIME_FRAME = 10  #seconds
+MUTE_DURATION = 10  # Mute user for 10 seconds after exceeding limit
 
 #Loading environment variables from .env file
 load_dotenv()
@@ -107,38 +112,53 @@ def leave_room():
     session.pop("username", None) #Remove username from session
     return redirect(url_for("home"))
 
-USER_MESSAGE_TIMESTAMPS = {} 
-MESSAGE_RATE_LIMIT = 5  # of msgs
-TIME_FRAME = 10  #seconds
 
-#Broadcast messages to all connected users except the sender.
+#Broadcast messages to all connected users
 async def broadcast_message(sender, message):
     print("Inside broadcast_message")
 
     current_time = time.time()
+
+    #Check if user is muted
+    if sender in MUTED_USERS and current_time < MUTED_USERS[sender]:
+        print(f"{sender} is muted, message ignored.")
+        return  #Ignore muted user's message
+    
+    #Check if user is muted
+    if sender in MUTED_USERS:
+        mute_expiry = MUTED_USERS[sender]
+        if current_time < mute_expiry:
+            return  #Ignore muted user's message
+        else:
+            del MUTED_USERS[sender]  #Unmute the user after MUTE_DURATION
+    
+    #Initialize user history
     if sender not in USER_MESSAGE_TIMESTAMPS:
         USER_MESSAGE_TIMESTAMPS[sender] = []
     
-    # Remove old messages beyond TIME_FRAME
+    #Remove timestamps outside the TIME_FRAME
     USER_MESSAGE_TIMESTAMPS[sender] = [
         ts for ts in USER_MESSAGE_TIMESTAMPS[sender] if current_time - ts < TIME_FRAME
     ]
+
     #rate limit 
     if len(USER_MESSAGE_TIMESTAMPS[sender]) >= MESSAGE_RATE_LIMIT:
-        print(f"Rate limit exceeded for {sender}")
-        await CONNECTED_CLIENTS[sender].send("Rate limit exceeded. Please wait before sending more messages.")
-        return
+        if sender not in MUTED_USERS:  #Add to MUTED_USERS & send warning msg
+            print(f"Rate limit exceeded for {sender}. Warning sent. Muting for {MUTE_DURATION} seconds.")
+            await CONNECTED_CLIENTS[sender].send(f"Rate limit exceeded! Please wait {MUTE_DURATION} seconds before sending more messages.")
+            MUTED_USERS[sender] = current_time + MUTE_DURATION  # Mute user for 10 sec
+            return  #Ignore message
     
     # Adds a timestamp and send message
     USER_MESSAGE_TIMESTAMPS[sender].append(current_time)
     
     for connection in CONNECTED_CLIENTS.values():
         try:
-            print("Sending message to broadcast_message")
+            print("Broadcasting message to all users")
             await connection.send(f"{sender}: {message}")
 
         except websockets.exceptions.ConnectionClosed:
-            continue  #Continue when sending a message to a disconnected WebSocket
+            continue  #Ignore disconnected WebSocket
 
 
 #Handler for websocket connections & message listening
