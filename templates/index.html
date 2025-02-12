@@ -1,16 +1,22 @@
 {% extends 'base.html' %}
 {% block content %}
 <form method="post" id="auth-form">
-    <div>
+    <div class="auth-form">
         <h1>Secure Chat</h1>
-        <label>Username</label>
-        <input type="text" placeholder="Enter your username" name="username" required />
+        <div>
+            <label>Username</label>
+            <input type="text" placeholder="Enter your username" name="username" required />
+        </div>
 
-        <label>Password</label>
-        <input type="password" placeholder="Enter your password" name="password" required />
+        <div>
+            <label>Password</label>
+            <input type="password" placeholder="Enter your password" name="password" required />
+        </div>
 
-        <button type="button" id="signup-btn">Sign Up</button>
-        <button type="button" id="login-btn">Login</button>
+        <div class="auth-btn">
+            <button type="button" id="signup-btn">Sign Up</button>
+            <button type="button" id="login-btn">Login</button>
+        </div>
 
         <div id="message-box" style="margin-top: 10px;"></div> <!-- Message Box -->
     </div>
