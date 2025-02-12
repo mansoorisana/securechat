@@ -12,7 +12,6 @@ It enables multiple users to connect, send messages instantly, and handle connec
 - **HTML/CSS/Javascript** - Acts as the websocket client.
 - **Flask-SQLAlchemy** – Manages user database and authentication.
 - **Flask-Bcrypt** – Securely hashes user passwords.
-- **Flask-Limiter** – Prevents spamming with rate limiting.
 - **SSL/TLS Encryption** – Secures WebSocket communication.
 - **SQLite** – Lightweight database for user authentication.
 ---
@@ -68,27 +67,27 @@ The application will be available at:
 
 ## 📌 Features
 
-### **1️⃣ User Authentication  
+### **1️⃣ User Authentication** 
 - Users must **sign up** before logging in.  
 - Passwords are securely hashed with **Flask-Bcrypt**.  
 - Only authenticated users can participate in the chat. 
 
-### **2️⃣ Real-Time Messaging  
+### **2️⃣ Real-Time Messaging**  
 - Uses **WebSockets** for instant communication.  
 - Messages are broadcast to all connected users in real-time. 
 
-### **2️⃣ Connection Handling**  
+### **3️⃣ Connection Handling**
 - New users can Join the chat room & receive a "joined the chat" message upon connecting.
 - Users can leave the room & trigger a "left the chat" message.
 - Users are reconnected in case of interruptions.
 
-### **4️⃣ Secure Communication  
+### **4️⃣ Secure Communication**  
 - **SSL/TLS Encryption** ensures all WebSocket messages are protected.  
 - Uses **wss://**  for secure communication.  
 
-### **5️⃣ Rate Limiting  
+### **5️⃣ Rate Limiting**  
 - Prevents spamming by **limiting messages per user**.  
-- Uses **Flask-Limiter** to restrict **max messages per minute**.  
+
 ---
 
 ## 📌 Project Structure
@@ -105,5 +104,3 @@ The application will be available at:
 │   ├── style.css      # Styling for UI
 │── README.md          # Instructions for running the project
 ```
-
-
