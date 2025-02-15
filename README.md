@@ -93,14 +93,15 @@ The application will be available at:
 ## 📌 Project Structure
 ```bash
 /SecureChat
-│── websocket.py       # Main Python server file
-│── requirements.txt   # Dependency list
-│── .env.example       # Example .env file (without actual secrets)
-│── .gitignore         # Ensures sensitive files are not pushed to Git
-│── /templates         # HTML templates
-│   ├── index.html     # Signup/Login page
-│   ├── chat.html      # Chat interface
-│── /static/css        # CSS files
-│   ├── style.css      # Styling for UI
-│── README.md          # Instructions for running the project
+│── websocket.py                # Main Python server file
+│── requirements.txt            # Dependency list
+│── .env.example                # Example .env file (without actual secrets)
+│── .gitignore                  # Ensures sensitive files are not pushed to Git
+│── /templates                  # HTML templates
+│   ├── index.html              # Signup/Login page
+│   ├── chat.html               # Chat interface
+│── /static/css                 # CSS files
+│   ├── style.css               # Styling for UI
+│── README.md                   # Instructions for running the project
+│── User Guide - Group 23.pdf   # User Guide for setup & running the project
 ```
