@@ -1,5 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
+<!-- Adding Quill Styles and Emoji Plugin -->
+<link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.css">
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.min.js"></script>
+
 <div class="chat-title">
     <h1>Secure Chat</h1>
     <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
@@ -9,8 +15,10 @@
 <div class="chat-box">
     <h3>Welcome {{username}} to the Chat Room!</h3>
     <div class="messages" id="messages"></div>
+    
     <div class="input-text">
-        <input type="text" rows="3" placeholder="Enter Message" name="input-text" id="input-text"/>
+        <!-- Quill Editor -->
+        <div id="editor-container"></div>
         <button type="button" name="send" id="send-btn" onclick="sendMessage()">
             Send
         </button>
@@ -72,28 +80,48 @@
         messages.innerHTML += texts;
     };
 
-    //Sending message to the websocket server
-    const sendMessage = () => {
-        const text = document.getElementById("input-text")
-        if (text.value.trim() === "")
-            return;
-        
-        //Sanitize the user input using DOMPurify
-        const sanitizedText = DOMPurify.sanitize(text.value);
-
-        if(sanitizedText.trim().length > 0){
-            console.log("Sending sanitized message to WS Server. sanitizedText :",sanitizedText)
-            ws.send(sanitizedText);
+    //Initializing Quill with text formatting for bold, italics, underline, lists, links, Emoji
+    const quill = new Quill("#editor-container", {
+        theme: "snow",
+        placeholder: "Enter Message...",
+        modules: {
+            toolbar: [
+                ["bold", "italic", "underline", "strike"],
+                [{ 'header': 1 }, { 'header': 2 }],
+                [{ 'script': 'sub'}, { 'script': 'super' }],
+                [{ list: "ordered" }, { list: "bullet" }],
+                [{ 'color': [] }, { 'background': [] }], // dropdown with defaults from theme
+                ["link"],
+                ["emoji"] //Adds emoji picker button
+            ],
+            "emoji-toolbar": true,
+            "emoji-shortname": true
         }
-          
-        text.value = "";
+    });
+
+    //Sending formatted message to the websocket server
+    const sendMessage = () => {
+        let message = quill.root.innerHTML.trim();
+        if (message === "<p><br></p>" || message === "") return;
+
+        let sanitizedMessage = DOMPurify.sanitize(message);
+
+        // Convert paragraph breaks into spaces after sanitization
+        sanitizedMessage = sanitizedMessage.replace(/<\/p><p>/g, " ")
+                                           .replace(/<p>|<\/p>/g, "")
+                                           .replace(/<br>/g, " ");
+
+        console.log("Sending sanitized message to WS Server:", sanitizedMessage);
+        ws.send(sanitizedMessage);
+
+        quill.root.innerHTML = "";
     };
 
-    // Event listener to input field to capture 'Enter' key
-    document.getElementById("input-text").addEventListener("keydown", function (event) {
-        if (event.key === "Enter") {
-            event.preventDefault(); // Prevents the form from submitting normally
-            sendMessage();  // Calls sendMessage() when Enter is pressed
+    // Event listener to send message on 'Enter' key
+    quill.root.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
         }
     });
 

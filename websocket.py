@@ -201,7 +201,7 @@ async def websocket_server(websocket):
 async def start_websocket_server():
     async with websockets.serve(
         websocket_server, 
-        "localhost", 
+        "0.0.0.0", 
         8765, 
         ssl = SSL_CONTEXT, 
         ping_interval = HEARTBEAT_INTERVAL, 
@@ -210,16 +210,10 @@ async def start_websocket_server():
         await asyncio.Future() #Keeps the server running indefinitely
 
 
-def run_flask():
-    # Running Flask in a separate thread with SSL
-    app.run(debug=True, port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH))
-
-
-
 if __name__ == '__main__':
     #Starting Flask in main thread with SSL
     flask_thread = threading.Thread(
-        target=lambda: app.run(port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH), use_reloader=False),daemon=True)
+        target=lambda: app.run(host= "0.0.0.0", port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH), use_reloader=False),daemon=True)
     flask_thread.start()
 
     #Running WebSocket server in the main event loop
