@@ -6,41 +6,76 @@
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.min.js"></script>
 
-<div class="chat-title">
+<!-- <div class="chat-title">
     <h1>Secure Chat</h1>
     <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
         Leave Room
     </button>
-</div>
-<div class="chat-box">
+</div> -->
+<!-- <div class="chat-box">
     <h3>Welcome {{username}} to the Chat Room!</h3>
     <div class="messages" id="messages"></div>
     
     <div class="input-text">
-        <!-- Quill Editor -->
         <div id="editor-container"></div>
         <button type="button" name="send" id="send-btn" onclick="sendMessage()">
             Send
         </button>
     </div>
+</div> -->
+<div class="chat-container">
+    <div class="sidebar">
+        <h3>Users</h3>
+        <form id="chat-selection">
+            <div id="user-list"></div>
+            <button type="button" onclick="createChat()">Start Chat</button>
+        </form>
+
+        <h3>Active Chats</h3>
+        <div id="active-chats"></div>
+    </div>
+
+    <div class="chat-box">
+        <h3 id="chat-header">Select a chat</h3>
+        <div class="messages" id="messages"></div>
+
+        <div class="input-text">
+            <!-- Quill Editor -->
+            <div id="editor-container"></div>
+            <button type="button" id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
 </div>
+
 <script type="text/javascript">
     
     let ws;
     let username = "{{ username }}";
+    let currentChatId = null;
+    let activeChats = new Set(); 
     
     function connectWebSocket() {
         ws = new WebSocket("wss://" + window.location.hostname + ":8765");
 
         ws.onopen = () => {
             console.log("WebSocket Connection open from client. Sending username :",username)
-            ws.send(username);  //Sending username first for identification
+            // ws.send(username);  //Sending username first for identification
+            ws.send(JSON.stringify({ "username": username }));
         }
 
         //Listening for message event sent from web socket server and displaying in our chat-box
         ws.onmessage = (event) => {
             console.log("Received message from WS Server. message :",event.data)
-            showMessage(event.data);
+            // showMessage(event.data);
+            let data = JSON.parse(event.data);
+
+            if (data.user_list) {
+                updateUserList(data.user_list);
+            }
+            else
+            {
+                showMessage(event.data);
+            }
         };
 
         window.addEventListener("beforeunload", () => {
@@ -64,6 +99,15 @@
     }
 
     connectWebSocket()
+
+    //Displaying online connected clients available for chat
+    function updateUserList(users) {
+        let userListDiv = document.getElementById("user-list");
+        userListDiv.innerHTML = users
+            .filter(u => u !== username)
+            .map(u => `<label><input type="checkbox" value="${u}"> ${u}</label><br>`)
+            .join("");
+    }
 
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")

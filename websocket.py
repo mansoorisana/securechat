@@ -1,11 +1,11 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify
-import asyncio, websockets, threading, os, time, sys, ssl 
+import asyncio, websockets, threading, os, time, sys, ssl, json 
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 
 
-CONNECTED_CLIENTS = {}
+CONNECTED_CLIENTS = {} # Active WebSocket connections
 HEARTBEAT_INTERVAL = 10  #seconds
 HEARTBEAT_TIMEOUT = 5  #seconds
 USER_MESSAGE_TIMESTAMPS = {} 
@@ -160,28 +160,38 @@ async def broadcast_message(sender, message):
         except websockets.exceptions.ConnectionClosed:
             continue  #Ignore disconnected WebSocket
 
+# Notify all clients about the updated user list
+async def notify_user_list():
+    users = list(CONNECTED_CLIENTS.keys())
+    for ws in CONNECTED_CLIENTS.values():
+        await ws.send(json.dumps({"user_list": users}))
+
 
 #Handler for websocket connections & message listening
 async def websocket_server(websocket):
+    username = None
     try:
         #Expecting the first message to be the username
         print("Inside websocket_server")
-        username = await websocket.recv()
-        
+        data = await websocket.recv()
+        user_data = json.loads(data)
+        username = user_data.get("username")
+
          # Run database queries inside app context
         with app.app_context():
             registered_users = [user.username for user in User.query.all()]
 
             ## ensures users must be registered/logged in before accessing chat
         if username not in registered_users:
-            await websocket.send("Unauthorized access. Disconnecting...")
+            await websocket.send(json.dumps({"error": "Unauthorized access. Disconnecting..."}))
             return
         
         
         CONNECTED_CLIENTS[username] = websocket
-        print("Connected Clients :", CONNECTED_CLIENTS.keys())
-        join_msg = f"{username} has joined the chat!"
-        await broadcast_message(username,join_msg)
+        # print("Connected Clients :", CONNECTED_CLIENTS.keys())
+        # join_msg = f"{username} has joined the chat!"
+        # await broadcast_message(username,join_msg)
+        await notify_user_list()
 
         async for message in websocket:
             await broadcast_message(username,message)
@@ -194,8 +204,9 @@ async def websocket_server(websocket):
         if username in CONNECTED_CLIENTS:
             print(f"{username} User diconnected")
             del CONNECTED_CLIENTS[username]
-            left_msg = f"{username} has left the chat!"
-            await broadcast_message(username,left_msg)
+            # left_msg = f"{username} has left the chat!"
+            # await broadcast_message(username,left_msg)
+            await notify_user_list()
 
 #Starting the websocket server inside the event loop
 async def start_websocket_server():

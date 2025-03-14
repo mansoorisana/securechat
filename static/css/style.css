@@ -100,3 +100,9 @@ h3 {
     background-color: rgb(83, 188, 220) !important;
     border-radius: 5px;
 }
+
+.chat-container {
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+}
