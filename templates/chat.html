@@ -6,27 +6,10 @@
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.min.js"></script>
 
-<!-- <div class="chat-title">
-    <h1>Secure Chat</h1>
-    <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
-        Leave Room
-    </button>
-</div> -->
-<!-- <div class="chat-box">
-    <h3>Welcome {{username}} to the Chat Room!</h3>
-    <div class="messages" id="messages"></div>
-    
-    <div class="input-text">
-        <div id="editor-container"></div>
-        <button type="button" name="send" id="send-btn" onclick="sendMessage()">
-            Send
-        </button>
-    </div>
-</div> -->
 <div class="chat-container">
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>Secure Chat</h1>
+            <h2>Welcome {{username}}!</h1>
             <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
                 Logout
             </button>
@@ -75,15 +58,18 @@
         //Listening for message event sent from web socket server and displaying in our chat-box
         ws.onmessage = (event) => {
             console.log("Received message from WS Server. message :",event.data)
-            // showMessage(event.data);
             let data = JSON.parse(event.data);
 
             if (data.user_list) {
                 updateUserList(data.user_list);
-            }
-            else
-            {
-                showMessage(event.data);
+            } else if (data.chat_id) {
+                activeChats.add(data.chat_id);
+                updateActiveChats();
+                if (data.chat_id === currentChatId) {
+                    showMessage(data.sender, data.message);
+                }
+            } else if (data.error) {
+                showMessage("SERVER", data.error);
             }
         };
 
@@ -118,15 +104,56 @@
             .join("");
     }
 
+    //Creating chat based on checklist items selected
+    function createChat() {
+        let selectedUsers = Array.from(document.querySelectorAll("#user-list input:checked"))
+                                .map(input => input.value);
+
+        if (selectedUsers.length === 0) 
+            return alert("Select at least one user");
+
+        if (selectedUsers.length === 1) {
+            currentChatId = [username, selectedUsers[0]].sort().join("_");
+            activeChats.add(currentChatId);
+            loadChat(currentChatId);
+        }
+        updateActiveChats();
+    }
+
+    //Displaying active chats for the user
+    function updateActiveChats() {
+        let activeChatsDiv = document.getElementById("active-chats");
+        activeChatsDiv.innerHTML = Array.from(activeChats)
+            .map(chat => `<button onclick="loadChat('${chat}')">${chat}</button><br>`)
+            .join("");
+    }
+
+    //Displaying selected chat messages with history
+    function loadChat(chatId) {
+        currentChatId = chatId;
+        document.getElementById("chat-header").innerText = "Chat ID: " + chatId;
+        document.getElementById("messages").innerHTML = "";
+
+        fetch(`/chat/${chatId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.chat_logs) {
+                    data.chat_logs.forEach(log => {
+                        let parts = log.split(": ");
+                        showMessage(parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
+                    });
+                }
+            });
+    }
+
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
-    const showMessage = (msg) =>{
+    const showMessage = (sender,msg) => {
         const sanitizedMsg = DOMPurify.sanitize(msg);
-        let usrMsgSplit = sanitizedMsg.split(":")
         const texts = `
         <div> 
             <span>
-                <strong>${usrMsgSplit[0]}</strong>: ${usrMsgSplit.slice(1).join(":")}
+                <strong>${sender}</strong>: ${sanitizedMsg}
             </span>
         </div>
         `;
@@ -165,7 +192,7 @@
                                            .replace(/<br>/g, " ");
 
         console.log("Sending sanitized message to WS Server:", sanitizedMessage);
-        ws.send(sanitizedMessage);
+        ws.send(JSON.stringify({ "chat_id": currentChatId, "sender": username, "message": sanitizedMessage }))
 
         quill.root.innerHTML = "";
     };

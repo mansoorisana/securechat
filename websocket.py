@@ -117,6 +117,17 @@ def chat():
     return render_template("chat.html", username=username)
 
 
+#Get chat history based on chat_id
+@app.route("/chat/<chat_id>", methods=["GET"])
+def get_chat(chat_id):
+    chat_file = f"{chat_logs_dir}/chat_{chat_id}.txt"
+    if os.path.exists(chat_file):
+        with open(chat_file, "r") as f:
+            chat_logs = f.readlines()
+        return jsonify({"chat_logs": chat_logs})
+    return jsonify({"chat_logs": []})
+
+
 @app.route("/leave")
 def leave_room():
     session.pop("username", None) #Remove username from session
@@ -155,7 +166,7 @@ async def broadcast_message(sender, message, chat_id):
     if len(USER_MESSAGE_TIMESTAMPS[sender]) >= MESSAGE_RATE_LIMIT:
         if sender not in MUTED_USERS:  #Add to MUTED_USERS & send warning msg
             print(f"Rate limit exceeded for {sender}. Warning sent. Muting for {MUTE_DURATION} seconds.")
-            await CONNECTED_CLIENTS[sender].send(f"Rate limit exceeded! Please wait {MUTE_DURATION} seconds before sending more messages.")
+            await CONNECTED_CLIENTS[sender].send(json.dumps({"error": "RATE LIMIT EXCEEDED. PLEASE WAIT FOR 10 SECONDS."}))
             MUTED_USERS[sender] = current_time + MUTE_DURATION  # Mute user for 10 sec
             return  #Ignore message
     
@@ -163,14 +174,16 @@ async def broadcast_message(sender, message, chat_id):
     USER_MESSAGE_TIMESTAMPS[sender].append(current_time)
 
     log_message(chat_id, sender, message)
-    
-    for connection in CONNECTED_CLIENTS.values():
-        try:
-            print("Broadcasting message to all users")
-            await connection.send(f"{sender}: {message}")
 
+    # Broadcast the message to all chat members
+    for user in chat_id.split("_"):
+        try:
+            if user in CONNECTED_CLIENTS:
+                await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
+        
         except websockets.exceptions.ConnectionClosed:
             continue  #Ignore disconnected WebSocket
+
 
 # Notify all clients about the updated user list
 async def notify_user_list():
@@ -189,20 +202,17 @@ async def websocket_server(websocket):
         user_data = json.loads(data)
         username = user_data.get("username")
 
-         # Run database queries inside app context
+        # Run database queries inside app context
         with app.app_context():
             registered_users = [user.username for user in User.query.all()]
 
-            ## ensures users must be registered/logged in before accessing chat
+        ## ensures users must be registered/logged in before accessing chat
         if username not in registered_users:
             await websocket.send(json.dumps({"error": "Unauthorized access. Disconnecting..."}))
             return
         
         
         CONNECTED_CLIENTS[username] = websocket
-        # print("Connected Clients :", CONNECTED_CLIENTS.keys())
-        # join_msg = f"{username} has joined the chat!"
-        # await broadcast_message(username,join_msg)
         await notify_user_list()
 
         async for message in websocket:
@@ -220,8 +230,6 @@ async def websocket_server(websocket):
         if username in CONNECTED_CLIENTS:
             print(f"{username} User diconnected")
             del CONNECTED_CLIENTS[username]
-            # left_msg = f"{username} has left the chat!"
-            # await broadcast_message(username,left_msg)
             await notify_user_list()
 
 #Starting the websocket server inside the event loop

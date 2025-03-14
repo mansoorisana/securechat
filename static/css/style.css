@@ -143,6 +143,10 @@ body {
     flex-direction: column;
 }
 
+h1 {
+    text-align: center;
+}
+
 h2{
     color: white;
     margin-left: 5px;
@@ -151,6 +155,10 @@ h2{
 h3 {
     text-align: center;
     color: white;
+}
+
+.chat-box h3 {
+    color: black;
 }
 
 #input-text {
