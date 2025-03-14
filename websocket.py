@@ -58,6 +58,16 @@ SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
 
 
+#Logging each chat session
+chat_logs_dir = "logs"
+os.makedirs(chat_logs_dir, exist_ok=True)
+
+# Logs messages to a file per chat
+def log_message(chat_id, sender, message):
+    with open(f"{chat_logs_dir}/chat_{chat_id}.txt", "a") as f:
+        f.write(f"{sender}: {message}\n")
+
+
 # auto redirects url to /home 
 @app.route("/")
 def index():
@@ -114,7 +124,7 @@ def leave_room():
 
 
 #Broadcast messages to all connected users
-async def broadcast_message(sender, message):
+async def broadcast_message(sender, message, chat_id):
     print("Inside broadcast_message")
 
     current_time = time.time()
@@ -151,6 +161,8 @@ async def broadcast_message(sender, message):
     
     # Adds a timestamp and send message
     USER_MESSAGE_TIMESTAMPS[sender].append(current_time)
+
+    log_message(chat_id, sender, message)
     
     for connection in CONNECTED_CLIENTS.values():
         try:
@@ -194,7 +206,11 @@ async def websocket_server(websocket):
         await notify_user_list()
 
         async for message in websocket:
-            await broadcast_message(username,message)
+            message_data = json.loads(message)
+            sender = message_data["sender"]
+            chat_id = message_data["chat_id"]
+            msg_text = message_data["message"]
+            await broadcast_message(sender,msg_text,chat_id)
 
     except websockets.exceptions.ConnectionClosed:
         print(f"Connection closed for {username}")
