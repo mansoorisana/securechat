@@ -73,6 +73,7 @@ def log_message(chat_id, sender, message):
 def index():
     return redirect(url_for("home"))
 
+
 @app.route("/home", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
@@ -231,6 +232,7 @@ async def websocket_server(websocket):
             print(f"{username} User diconnected")
             del CONNECTED_CLIENTS[username]
             await notify_user_list()
+
 
 #Starting the websocket server inside the event loop
 async def start_websocket_server():

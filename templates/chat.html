@@ -124,14 +124,14 @@
     function updateActiveChats() {
         let activeChatsDiv = document.getElementById("active-chats");
         activeChatsDiv.innerHTML = Array.from(activeChats)
-            .map(chat => `<button onclick="loadChat('${chat}')">${chat}</button><br>`)
+            .map(chat => `<button class="chat-item-btn" onclick="loadChat('${chat}')">${chat}</button><br>`)
             .join("");
     }
 
     //Displaying selected chat messages with history
     function loadChat(chatId) {
         currentChatId = chatId;
-        document.getElementById("chat-header").innerText = "Chat ID: " + chatId;
+        document.getElementById("chat-header").innerText = "Chat: " + chatId;
         document.getElementById("messages").innerHTML = "";
 
         fetch(`/chat/${chatId}`)
