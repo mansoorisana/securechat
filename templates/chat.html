@@ -116,6 +116,21 @@
             currentChatId = [username, selectedUsers[0]].sort().join("_");
             activeChats.add(currentChatId);
             loadChat(currentChatId);
+        } else {
+            let groupName = prompt("Enter group name:");
+            if (!groupName) return;
+            
+            fetch("/create_group", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ group_name: groupName, members: [username, ...selectedUsers] })
+            })
+            .then(res => res.json())
+            .then(data => {
+                currentChatId = data.chat_id;
+                activeChats.add(currentChatId);
+                loadChat(currentChatId);
+            });
         }
         updateActiveChats();
     }

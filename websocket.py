@@ -13,6 +13,7 @@ MUTED_USERS = {}  # Store muted users and when they can send again
 MESSAGE_RATE_LIMIT = 5  # of msgs
 TIME_FRAME = 10  #seconds
 MUTE_DURATION = 10  # Mute user for 10 seconds after exceeding limit
+GROUP_CHATS = {}  # Group chat mapping
 
 #Loading environment variables from .env file
 load_dotenv()
@@ -128,6 +129,21 @@ def get_chat(chat_id):
         return jsonify({"chat_logs": chat_logs})
     return jsonify({"chat_logs": []})
 
+#Creating a new group
+@app.route("/create_group", methods=["POST"])
+def create_group():
+    data = request.json
+    group_name = data.get("group_name")
+    members = data.get("members")
+
+    if not group_name or not members:
+        return jsonify({"error": "Group name and members required"}), 400
+
+    chat_id = f"group_{group_name}"
+    GROUP_CHATS[chat_id] = members
+
+    return jsonify({"chat_id": chat_id, "members": members})
+
 
 @app.route("/leave")
 def leave_room():
@@ -177,13 +193,22 @@ async def broadcast_message(sender, message, chat_id):
     log_message(chat_id, sender, message)
 
     # Broadcast the message to all chat members
-    for user in chat_id.split("_"):
-        try:
-            if user in CONNECTED_CLIENTS:
-                await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
-        
-        except websockets.exceptions.ConnectionClosed:
-            continue  #Ignore disconnected WebSocket
+    if chat_id.startswith("group"):
+        for user in GROUP_CHATS[chat_id]:
+            try:
+                if user in CONNECTED_CLIENTS:
+                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
+            
+            except websockets.exceptions.ConnectionClosed:
+                continue  #Ignore disconnected WebSocket
+    else:   
+        for user in chat_id.split("_"):
+            try:
+                if user in CONNECTED_CLIENTS:
+                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
+            
+            except websockets.exceptions.ConnectionClosed:
+                continue  #Ignore disconnected WebSocket
 
 
 # Notify all clients about the updated user list
