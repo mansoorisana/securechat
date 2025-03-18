@@ -69,7 +69,7 @@
                     showMessage(data.timestamp, data.sender, data.message);
                 }
             } else if (data.error) {
-                showMessage("SERVER", data.error);
+                showMessage(data.timestamp, data.sender, data.error);
             }
         };
 

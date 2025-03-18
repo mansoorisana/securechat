@@ -23,6 +23,8 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
 
+###################### START DATABASE ######################
+
 # Configuring the database
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -46,6 +48,10 @@ def create_database():
 
 create_database()
 
+###################### END DATABASE ######################
+
+###################### START SSL ######################
+
 # ssl cert implementation 
 
 SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "your_cert.pem") 
@@ -59,6 +65,9 @@ if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
 SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
 
+###################### END SSL ######################
+
+###################### START SESSION BASED LOGGING ######################
 
 #Logging each chat session
 LOG_FILE_TRACKER = {}
@@ -92,6 +101,9 @@ def log_message(chat_id, sender, message):
     with open(session_filename, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} - {sender}: {message}\n")
 
+###################### END SESSION BASED LOGGING ######################
+
+###################### START API ROUTES ######################
 
 # auto redirects url to /home 
 @app.route("/")
@@ -177,67 +189,94 @@ def leave_room():
     session.pop("username", None) #Remove username from session
     return redirect(url_for("home"))
 
+###################### END API ROUTES ######################
 
-#Broadcast messages to all connected users
-async def broadcast_message(sender, message, chat_id):
-    print("Inside broadcast_message")
+###################### START MESSAGE ROUTING ######################
 
-    current_time = time.time()
-
-    #Check if user is muted
-    if sender in MUTED_USERS and current_time < MUTED_USERS[sender]:
-        print(f"{sender} is muted, message ignored.")
-        return  #Ignore muted user's message
-    
-    #Check if user is muted
+# Checking if user is muted
+async def is_user_muted(sender, current_time):
     if sender in MUTED_USERS:
         mute_expiry = MUTED_USERS[sender]
         if current_time < mute_expiry:
-            return  #Ignore muted user's message
+            print(f"{sender} is muted, message ignored.")
+            return True
         else:
-            del MUTED_USERS[sender]  #Unmute the user after MUTE_DURATION
-    
-    #Initialize user history
+            del MUTED_USERS[sender]  #Unmuting the user after MUTE_DURATION
+    return False
+
+# Checking message rate limit
+async def check_rate_limit(sender, current_time):
     if sender not in USER_MESSAGE_TIMESTAMPS:
-        USER_MESSAGE_TIMESTAMPS[sender] = []
+        USER_MESSAGE_TIMESTAMPS[sender] = [] #Initialize user history
     
     #Remove timestamps outside the TIME_FRAME
     USER_MESSAGE_TIMESTAMPS[sender] = [
         ts for ts in USER_MESSAGE_TIMESTAMPS[sender] if current_time - ts < TIME_FRAME
     ]
-
-    timestamp = generate_timestamp()
-    #rate limit 
-    if len(USER_MESSAGE_TIMESTAMPS[sender]) >= MESSAGE_RATE_LIMIT:
-        if sender not in MUTED_USERS:  #Add to MUTED_USERS & send warning msg
-            print(f"Rate limit exceeded for {sender}. Warning sent. Muting for {MUTE_DURATION} seconds.")
-            await CONNECTED_CLIENTS[sender].send(json.dumps({"error": "RATE LIMIT EXCEEDED. PLEASE WAIT FOR 10 SECONDS.", "timestamp": timestamp}))
-            MUTED_USERS[sender] = current_time + MUTE_DURATION  # Mute user for 10 sec
-            return  #Ignore message
     
-    # Adds a timestamp and send message
+    if len(USER_MESSAGE_TIMESTAMPS[sender]) >= MESSAGE_RATE_LIMIT:
+        print(f"Rate limit exceeded for {sender}. Warning sent. Muting for {MUTE_DURATION} seconds.")
+        return True
+    return False
+
+# Send warning and mute the user
+async def warn_and_mute(sender, current_time):
+    MUTED_USERS[sender] = current_time + MUTE_DURATION  # Mute user for MUTE_DURATION
+    timestamp = generate_timestamp()
+    await CONNECTED_CLIENTS[sender].send(json.dumps({
+        "error": "RATE LIMIT EXCEEDED. PLEASE WAIT FOR 10 SECONDS.",
+        "timestamp": timestamp,
+        "sender": "SERVER"
+    }))
+
+# Send message to all users in group or private chat
+async def send_msg_to_users(chat_id, sender, message, timestamp):
+    if chat_id.startswith("group"):
+        users = GROUP_CHATS.get(chat_id, [])
+    else:
+        users = chat_id.split("_")
+    
+    for user in users:
+        try:
+            if user in CONNECTED_CLIENTS:
+                await CONNECTED_CLIENTS[user].send(json.dumps({
+                    "chat_id": chat_id,
+                    "sender": sender,
+                    "message": message,
+                    "timestamp": timestamp
+                }))
+        except websockets.exceptions.ConnectionClosed:
+            continue  # Ignore disconnected WebSocket
+
+# Handler for sending messages to users
+async def broadcast_message(sender, message, chat_id):
+    print("Inside broadcast_message")
+
+    current_time = time.time()
+
+    # Check if user is muted
+    if await is_user_muted(sender, current_time):
+        return  # Ignore muted user's message
+
+    # Check if the user exceeds the rate limit
+    if await check_rate_limit(sender, current_time):
+        if sender not in MUTED_USERS:
+            await warn_and_mute(sender, current_time)
+        return  # Ignore message
+
+    # Add current timestamp for msg history tracking
+    timestamp = generate_timestamp()
     USER_MESSAGE_TIMESTAMPS[sender].append(current_time)
 
+    # Add messages to session log file
     log_message(chat_id, sender, message)
 
     # Broadcast the message to all chat members
-    if chat_id.startswith("group"):
-        for user in GROUP_CHATS[chat_id]:
-            try:
-                if user in CONNECTED_CLIENTS:
-                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message, "timestamp": timestamp}))
-            
-            except websockets.exceptions.ConnectionClosed:
-                continue  #Ignore disconnected WebSocket
-    else:   
-        for user in chat_id.split("_"):
-            try:
-                if user in CONNECTED_CLIENTS:
-                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message, "timestamp": timestamp}))
-            
-            except websockets.exceptions.ConnectionClosed:
-                continue  #Ignore disconnected WebSocket
+    await send_msg_to_users(chat_id, sender, message, timestamp)
 
+###################### END MESSAGE ROUTING ######################
+
+###################### START WEB SOCKET CONNECTION ######################
 
 # Notify all clients about the updated user list
 async def notify_user_list():
@@ -299,6 +338,7 @@ async def start_websocket_server():
         print("Secure WebSocket server started with (wss://)")
         await asyncio.Future() #Keeps the server running indefinitely
 
+###################### END WEB SOCKET CONNECTION ######################
 
 if __name__ == '__main__':
     #Starting Flask in main thread with SSL
