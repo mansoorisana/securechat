@@ -66,7 +66,7 @@
                 activeChats.add(data.chat_id);
                 updateActiveChats();
                 if (data.chat_id === currentChatId) {
-                    showMessage(data.sender, data.message);
+                    showMessage(data.timestamp, data.sender, data.message);
                 }
             } else if (data.error) {
                 showMessage("SERVER", data.error);
@@ -154,8 +154,9 @@
             .then(data => {
                 if (data.chat_logs) {
                     data.chat_logs.forEach(log => {
-                        let parts = log.split(": ");
-                        showMessage(parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
+                        let time_split = log.split("- ");
+                        let parts = time_split[1].split(": ");
+                        showMessage(time_split[0],parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
                     });
                 }
             });
@@ -163,12 +164,15 @@
 
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
-    const showMessage = (sender,msg) => {
+    const showMessage = (timstamp,sender,msg) => {
         const sanitizedMsg = DOMPurify.sanitize(msg);
         const texts = `
-        <div> 
+        <div class="text"> 
             <span>
                 <strong>${sender}</strong>: ${sanitizedMsg}
+            </span>
+            <span>
+                ${timstamp}
             </span>
         </div>
         `;

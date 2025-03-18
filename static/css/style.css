@@ -132,6 +132,13 @@ body {
     width: 100%;
 }
 
+.text {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-between;
+}
+
 .input-text {
     padding: 10px;
     display: flex;

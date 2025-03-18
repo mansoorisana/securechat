@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify
-import asyncio, websockets, threading, os, time, sys, ssl, json 
+import asyncio, websockets, threading, os, time, sys, ssl, json
+from datetime import datetime
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -60,13 +61,36 @@ SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
 
 
 #Logging each chat session
+LOG_FILE_TRACKER = {}
 chat_logs_dir = "logs"
 os.makedirs(chat_logs_dir, exist_ok=True)
 
-# Logs messages to a file per chat
+# Generate a human-readable timestamp for log messages
+def generate_timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# Generate a session-specific log filename
+def generate_session_filename(chat_id):
+    session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return f"{chat_logs_dir}/chat_{chat_id}_session_{session_timestamp}.txt"
+
+
+# Logs messages to a file per chat session, with human-readable timestamps
 def log_message(chat_id, sender, message):
-    with open(f"{chat_logs_dir}/chat_{chat_id}.txt", "a") as f:
-        f.write(f"{sender}: {message}\n")
+    timestamp = generate_timestamp()
+    
+    # Check if a session log file already exists for this chat_id
+    if chat_id not in LOG_FILE_TRACKER:
+        session_filename = generate_session_filename(chat_id)
+        LOG_FILE_TRACKER[chat_id] = session_filename  # Track the session file name in memory
+    else:
+        # Use the existing session log file for this chat_id
+        session_filename = LOG_FILE_TRACKER[chat_id]
+    
+    # Appending the message to the session log file
+    with open(session_filename, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} - {sender}: {message}\n")
 
 
 # auto redirects url to /home 
@@ -122,12 +146,15 @@ def chat():
 #Get chat history based on chat_id
 @app.route("/chat/<chat_id>", methods=["GET"])
 def get_chat(chat_id):
-    chat_file = f"{chat_logs_dir}/chat_{chat_id}.txt"
-    if os.path.exists(chat_file):
-        with open(chat_file, "r") as f:
-            chat_logs = f.readlines()
-        return jsonify({"chat_logs": chat_logs})
+    # Check if we have a recorded session log file for this chat_id
+    if chat_id in LOG_FILE_TRACKER:
+        latest_chat_file = LOG_FILE_TRACKER[chat_id]
+        if os.path.exists(latest_chat_file):
+            with open(latest_chat_file, "r", encoding="utf-8") as f:
+                chat_logs = f.readlines()
+            return jsonify({"chat_logs": chat_logs})
     return jsonify({"chat_logs": []})
+
 
 #Creating a new group
 @app.route("/create_group", methods=["POST"])
@@ -179,11 +206,12 @@ async def broadcast_message(sender, message, chat_id):
         ts for ts in USER_MESSAGE_TIMESTAMPS[sender] if current_time - ts < TIME_FRAME
     ]
 
+    timestamp = generate_timestamp()
     #rate limit 
     if len(USER_MESSAGE_TIMESTAMPS[sender]) >= MESSAGE_RATE_LIMIT:
         if sender not in MUTED_USERS:  #Add to MUTED_USERS & send warning msg
             print(f"Rate limit exceeded for {sender}. Warning sent. Muting for {MUTE_DURATION} seconds.")
-            await CONNECTED_CLIENTS[sender].send(json.dumps({"error": "RATE LIMIT EXCEEDED. PLEASE WAIT FOR 10 SECONDS."}))
+            await CONNECTED_CLIENTS[sender].send(json.dumps({"error": "RATE LIMIT EXCEEDED. PLEASE WAIT FOR 10 SECONDS.", "timestamp": timestamp}))
             MUTED_USERS[sender] = current_time + MUTE_DURATION  # Mute user for 10 sec
             return  #Ignore message
     
@@ -197,7 +225,7 @@ async def broadcast_message(sender, message, chat_id):
         for user in GROUP_CHATS[chat_id]:
             try:
                 if user in CONNECTED_CLIENTS:
-                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
+                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message, "timestamp": timestamp}))
             
             except websockets.exceptions.ConnectionClosed:
                 continue  #Ignore disconnected WebSocket
@@ -205,7 +233,7 @@ async def broadcast_message(sender, message, chat_id):
         for user in chat_id.split("_"):
             try:
                 if user in CONNECTED_CLIENTS:
-                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message}))
+                    await CONNECTED_CLIENTS[user].send(json.dumps({"chat_id": chat_id, "sender": sender, "message": message, "timestamp": timestamp}))
             
             except websockets.exceptions.ConnectionClosed:
                 continue  #Ignore disconnected WebSocket
