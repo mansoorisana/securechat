@@ -137,6 +137,19 @@ body {
     flex-direction: row;
     align-items: stretch;
     justify-content: space-between;
+    padding: 5px;
+}
+
+#go-to-general-btn {
+    display: none;
+    background-color: rgb(190, 199, 17);
+    border: none;
+    color: black;
+    font-weight: bold;
+    padding: 10px;
+    width: 100%;
+    text-align: center;
+    cursor: pointer;
 }
 
 .input-text {

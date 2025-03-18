@@ -29,6 +29,7 @@
 
     <div class="chat-box">
         <h3 id="chat-header">Select a chat</h3>
+        <button id="go-to-general-btn" style="display: none;" onclick="goToGeneralChat()">Go Back to General Chat</button>
         <div class="messages" id="messages"></div>
 
         <div class="input-text">
@@ -43,7 +44,7 @@
     
     let ws;
     let username = "{{ username }}";
-    let currentChatId = null;
+    let currentChatId = "general_chat";
     let activeChats = new Set(); 
     
     function connectWebSocket() {
@@ -63,14 +64,20 @@
             if (data.user_list) {
                 updateUserList(data.user_list);
             } else if (data.chat_id) {
-                activeChats.add(data.chat_id);
-                updateActiveChats();
+       
+                if (!activeChats.has(data.chat_id)) {
+                    activeChats.add(data.chat_id);
+                    updateActiveChats();
+                }
+
+        // Only show messages if the user is currently in that chat
                 if (data.chat_id === currentChatId) {
                     showMessage(data.timestamp, data.sender, data.message);
                 }
             } else if (data.error) {
-                showMessage(data.timestamp, data.sender, data.error);
+                showMessage(data.timestamp, "SERVER", data.error);
             }
+            
         };
 
         window.addEventListener("beforeunload", () => {
@@ -135,6 +142,28 @@
         updateActiveChats();
     }
 
+    //creating function for main server general chat
+    function goToGeneralChat() { 
+        currentChatId = "general_chat"; 
+        document.getElementById("chat-header").innerText = "Chat: General Chat";
+        document.getElementById("messages").innerHTML = "";
+
+        document.getElementById("go-to-general-btn").style.display = "none";  
+
+        fetch(`/chat/general_chat`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.chat_logs) {
+                    data.chat_logs.forEach(log => {
+                        let parts = log.split(": ");
+                        showMessage(parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
+                    });
+                }
+            });
+
+        updateActiveChats();
+    }
+
     //Displaying active chats for the user
     function updateActiveChats() {
         let activeChatsDiv = document.getElementById("active-chats");
@@ -148,19 +177,33 @@
         currentChatId = chatId;
         document.getElementById("chat-header").innerText = "Chat: " + chatId;
         document.getElementById("messages").innerHTML = "";
-
+        document.getElementById("go-to-general-btn").style.display = chatId === "general_chat" ? "none" : "block";
+    
         fetch(`/chat/${chatId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.chat_logs) {
-                    data.chat_logs.forEach(log => {
-                        let time_split = log.split("- ");
-                        let parts = time_split[1].split(": ");
-                        showMessage(time_split[0],parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
-                    });
-                }
-            });
-    }
+        .then(res => res.json())
+        .then(data => {
+            if (data.chat_logs) {
+                data.chat_logs.forEach(log => {
+                    
+                    let lastHyphenIndex = log.lastIndexOf(" - ");
+                    if (lastHyphenIndex !== -1) {
+                        let senderMessage = log.substring(0, lastHyphenIndex).split(": ");  // Extract sender & message
+                        let timestamp = log.substring(lastHyphenIndex + 3).trim(); // Extract timestamp correctly
+
+                        if (senderMessage.length >= 2) {
+                            let sender = senderMessage[0].trim();
+                            let message = senderMessage.slice(1).join(": ").trim(); // Preserve message formatting
+
+                        // Ensure sender and message are valid before displaying
+                            if (sender.length > 0 && message.length > 0) {
+                                showMessage(sender, message, timestamp);
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }   
 
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
