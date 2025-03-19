@@ -1,9 +1,14 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify
-import asyncio, websockets, threading, os, time, sys, ssl, json, signal
+import asyncio, websockets, threading, os, time, sys, ssl, json, signal, base64
 from datetime import datetime
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+
+
 
 
 CONNECTED_CLIENTS = {} # Active WebSocket connections
@@ -16,7 +21,10 @@ TIME_FRAME = 10  #seconds
 MUTE_DURATION = 10  # Mute user for 10 seconds after exceeding limit
 GROUP_CHATS = {}  # Group chat mapping
 UNDISPATCHED_MESSAGES = {} # stores undelivered messages (like in DMs)
-shutdown_initiated = False
+BRUTE_FORCE_LIMITS = ["5 per 5 minutes"]  # Brute force protection
+
+#tracks websocket shutdown signal
+shutdown_initiated = False  
 
 #Loading environment variables from .env file
 load_dotenv()
@@ -27,14 +35,12 @@ app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
 
 ###################### START DATABASE ######################
 
-# Configuring the database
+# Configuring the database & password hashing & brute force protection
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
-
-# Password hashing
 bcrypt = Bcrypt(app)
-
+limiter = Limiter(get_remote_address, app=app, default_limits=BRUTE_FORCE_LIMITS)
 
 # User model
 class User(db.Model):
@@ -114,6 +120,7 @@ def index():
 
 
 @app.route("/home", methods=["GET", "POST"])
+@limiter.limit("5 per 5 minutes") 
 def home():
     if request.method == "POST":
         username = request.form.get("username")
@@ -144,6 +151,10 @@ def home():
 
     return render_template("index.html")
 
+# brute force error responses
+@app.errorhandler(429)
+def too_many_requests(e):
+    return jsonify({"message": "Too many login attempts. Please try again in 5 minutes."}), 429
 
 @app.route("/chat")
 def chat():

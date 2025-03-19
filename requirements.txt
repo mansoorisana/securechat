@@ -1,5 +1,7 @@
 flask
 flask-sqlalchemy
 flask-bcrypt
+flask-limiter
 websockets
 python-dotenv
+pycryptodome
