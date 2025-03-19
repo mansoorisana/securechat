@@ -178,10 +178,12 @@
         document.getElementById("messages").innerHTML = "";
         document.getElementById("go-to-general-btn").style.display = chatId === "general_chat" ? "none" : "block";
 
-        fetch(`/chat/${chatId}`)
+        fetch(`/chat/${chatId}?t=${new Date().getTime()}`)
         .then(res => res.json())
         .then(data => {
+            console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
             if (data.chat_logs) {
+                document.getElementById("messages").innerHTML = ""; 
                 data.chat_logs.forEach(log => {
                     let logParts = log.trim().match(/^(.*?): (.*?) - (.*)$/);
                 
