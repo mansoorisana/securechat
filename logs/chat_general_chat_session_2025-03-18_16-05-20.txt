@@ -1,8 +1,0 @@
-Alice: Hiii   - 2025-03-18 16:05:20
-Bob: Heyyy   - 2025-03-18 16:05:24
-Alice: wassup    - 2025-03-18 16:05:44
-Alice: <span data-name="smile" class="ql-emojiblot">﻿<span><span class="ap ap-smile">😄</span></span>﻿</span>   - 2025-03-18 16:05:55
-Alice: sdsd   - 2025-03-18 16:05:56
-Alice: sd   - 2025-03-18 16:05:56
-Alice: s   - 2025-03-18 16:05:57
-Alice: d   - 2025-03-18 16:05:57
