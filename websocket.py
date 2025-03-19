@@ -90,7 +90,7 @@ def generate_session_filename(chat_id):
 # Logs messages to a file per chat session, with human-readable timestamps
 def log_message(chat_id, sender, message):
     timestamp = generate_timestamp()
-
+    
     # Check if a session log file already exists for this chat_id
     if chat_id not in LOG_FILE_TRACKER:
         session_filename = generate_session_filename(chat_id)
@@ -98,7 +98,7 @@ def log_message(chat_id, sender, message):
     else:
         # Use the existing session log file for this chat_id
         session_filename = LOG_FILE_TRACKER[chat_id]
-
+    
     # Appending the message to the session log file
     with open(session_filename, "a", encoding="utf-8") as f:
         f.write(f"{sender}: {message} - {timestamp}\n")  

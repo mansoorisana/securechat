@@ -171,40 +171,35 @@
             .map(chat => `<button class="chat-item-btn" onclick="loadChat('${chat}')">${chat}</button><br>`)
             .join("");
     }
-
-    //Displaying selected chat messages with history
+    // Displaying selected chat messages with history
     function loadChat(chatId) {
         currentChatId = chatId;
         document.getElementById("chat-header").innerText = "Chat: " + chatId;
         document.getElementById("messages").innerHTML = "";
         document.getElementById("go-to-general-btn").style.display = chatId === "general_chat" ? "none" : "block";
-    
+
         fetch(`/chat/${chatId}`)
         .then(res => res.json())
         .then(data => {
             if (data.chat_logs) {
                 data.chat_logs.forEach(log => {
-                    
-                    let lastHyphenIndex = log.lastIndexOf(" - ");
-                    if (lastHyphenIndex !== -1) {
-                        let senderMessage = log.substring(0, lastHyphenIndex).split(": ");  // Extract sender & message
-                        let timestamp = log.substring(lastHyphenIndex + 3).trim(); // Extract timestamp correctly
+                    let logParts = log.trim().match(/(.*?): (.*?) - (.*)/);
+                
+                    if (logParts && logParts.length === 4) {
+                        let sender = logParts[1].trim();    // Extract sender
+                        let message = logParts[2].trim();   // Extract message
+                        let timestamp = logParts[3].trim(); // Extract timestamp
 
-                        if (senderMessage.length >= 2) {
-                            let sender = senderMessage[0].trim();
-                            let message = senderMessage.slice(1).join(": ").trim(); // Preserve message formatting
-
-                        // Ensure sender and message are valid before displaying
-                            if (sender.length > 0 && message.length > 0) {
-                                showMessage(sender, message, timestamp);
-                            }
+                        
+                        if (sender.length > 0 && message.length > 0 && timestamp.length > 0) {
+                            showMessage(timestamp, sender, message);
                         }
                     }
                 });
             }
         });
-    }   
-
+    }
+        
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
     const showMessage = (timstamp,sender,msg) => {
