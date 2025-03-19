@@ -1,4 +1,0 @@
-Alice: how are you   - 2025-03-18 17:18:13
-Bob: i am good   - 2025-03-18 17:18:19
-Bob: lets try again    - 2025-03-18 17:18:50
-Alice: okay    - 2025-03-18 17:18:54
