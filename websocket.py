@@ -403,12 +403,6 @@ async def shutdown():
 async def start_websocket_server():
     global stop_event
     stop_event = asyncio.Event()
-   
-   
-    # Register signal handlers
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
 
     try:
         async with websockets.serve(
@@ -424,6 +418,7 @@ async def start_websocket_server():
         print("\nWebSocket server shutting down cleanly...")
     finally:
         print("\nWebSocket server shutdown complete.")
+        
 ###################### END WEB SOCKET CONNECTION ######################
 
 if __name__ == '__main__':
@@ -437,5 +432,10 @@ if __name__ == '__main__':
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(start_websocket_server())
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully on any OS (Linux, macOS, Windows)
+        print("Received KeyboardInterrupt, shutting down...")
+        loop.run_until_complete(shutdown())
     finally:
         loop.close()
+        print("Server has been shut down.")
