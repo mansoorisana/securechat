@@ -48,7 +48,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
-limiter = Limiter(get_remote_address, app=app, default_limits=BRUTE_FORCE_LIMITS)
+limiter = Limiter(get_remote_address, app=app)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # User model
@@ -321,9 +321,14 @@ def log_message(chat_id, sender, message):
 def index():
     return redirect(url_for("home"))
 
+# checks for too many login requests 
+def login_attempt_key():
+    username = request.form.get("username")
+    return username if username else get_remote_address()
+
 
 @app.route("/home", methods=["GET", "POST"])
-@limiter.limit("5 per 5 minutes") 
+@limiter.limit("5 per 5 minutes", key_func=login_attempt_key, methods=["POST"]) #brute foce login protect
 def home():
     if request.method == "POST":
         username = request.form.get("username")
