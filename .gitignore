@@ -18,3 +18,7 @@ __pycache__/
 logs/ 
 *.log
 .qodo
+
+#ignore user uploads
+uploads/
+

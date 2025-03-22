@@ -9,7 +9,7 @@
 <div class="chat-container">
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>Welcome {{username}}!</h1>
+            <h2>Welcome {{username}}!</h2>
             <button type="button" name="leave" id="leave-btn" onclick="leaveRoom()">
                 Logout
             </button>
@@ -35,17 +35,121 @@
         <div class="input-text">
             <!-- Quill Editor -->
             <div id="editor-container"></div>
+            <!-- File Upload & Download Buttons -->
+            <div class="file-controls">
+                <span class="file-label">Upload File</span>
+                <input type="file" id="file-input" style="display: none;" onchange="uploadFile()" />
+                <button id="upload-btn" onclick="document.getElementById('file-input').click();" title="Upload File">📤</button>
+
+                <span class="file-label">Download File</span>
+                <button id="download-btn" onclick="downloadFile()" title="Download File">📥</button>
+            </div>
+            <div id="file-selection-modal" style="display: none;">
+                <label for="file-select">Select file to download:</label>
+                <select id="file-select"></select>
+                <button onclick="confirmDownload()">Download</button>
+                <button onclick="closeModal()">Cancel</button>
+            </div>
             <button type="button" id="send-btn" onclick="sendMessage()">Send</button>
         </div>
     </div>
 </div>
 
 <script type="text/javascript">
-    
+    //for chat room
     let ws;
     let username = "{{ username }}";
     let currentChatId = "general_chat";
     let activeChats = new Set(); 
+
+    // secure file sharing variables
+    let decryptionKey; //AES key  file sharing
+    let availableFiles = []; 
+
+    //for e2e variables
+    let userKeyPair; 
+    let recipientPublicKeys = {};
+    let GROUP_KEYS = {};
+
+
+
+    async function getCryptoKey() {
+        try {
+            let response = await fetch("https://127.0.0.1:5000/get_aes_key");
+            let data = await response.json();
+            if (data.error) {
+                console.error(" Error retrieving AES key:", data.error);
+                return null;
+            }
+
+            console.log(" AES Key retrieved successfully");
+            let rawKey = Uint8Array.from(atob(data.aes_key), c => c.charCodeAt(0));
+            return await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+        } catch (error) {
+            console.error(" Error retrieving AES key:", error);
+            return null;
+        }
+    }
+
+
+    //genereates ECDH key pair for users
+    async function generateKeyPair() {
+        return await crypto.subtle.generateKey(
+            { name: "ECDH", namedCurve: "P-256" },
+            true,
+            ["deriveKey"]
+        );
+    }
+
+    async function deriveSymmetricKey(privateKey, recipientPublicKey) {
+        return await crypto.subtle.deriveKey(
+            { name: "ECDH", public: recipientPublicKey },
+            privateKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+
+    async function encryptChatMessage(message, symmetricKey) {
+    // Uses 12 bit IV for AES-GCM 
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encodedMessage = new TextEncoder().encode(message);
+        const encryptedBuffer = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            symmetricKey,
+            encodedMessage
+        );
+        // Return the ciphertext and IV 
+        return { ciphertext: new Uint8Array(encryptedBuffer), iv };
+    }
+
+    async function decryptChatMessage(ciphertextBase64, ivBase64, symmetricKey) {
+        const ciphertext = Uint8Array.from(atob(ciphertextBase64), c => c.charCodeAt(0));
+        const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+        const decryptedBuffer = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: iv },
+            symmetricKey,
+            ciphertext
+        );
+        return new TextDecoder().decode(decryptedBuffer);
+    }
+
+       // Converts a hex string group key to a CryptoKey for AES-GCM
+       async function importGroupKey(hexKey) {
+        // Convert hex string to a Uint8Array
+        let keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        return await crypto.subtle.importKey(
+            "raw",
+            keyBytes,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+
     
     function connectWebSocket() {
         ws = new WebSocket("wss://" + window.location.hostname + ":8765");
@@ -56,29 +160,84 @@
             ws.send(JSON.stringify({ "username": username }));
         }
 
-        //Listening for message event sent from web socket server and displaying in our chat-box
-        ws.onmessage = (event) => {
-            console.log("Received message from WS Server. message :",event.data)
+        ws.onmessage = async (event) => {
+            console.log("Received message from WS Server. message:", event.data);
             let data = JSON.parse(event.data);
 
-            if (data.user_list) {
-                updateUserList(data.user_list);
-            } else if (data.chat_id) {
-       
-                if (!activeChats.has(data.chat_id)) {
-                    activeChats.add(data.chat_id);
-                    updateActiveChats();
-                }
+            // Process chat messages if present (encrypted or unencrypted)
+            if (data.chat_id) {
+                // For encrypted chat messages:
+                if (data.encrypted) {
+                    let conversationKey;
+                    if (data.chat_id.startsWith("group_")) {
+                        conversationKey = GROUP_KEYS[data.chat_id];
+                        if (!conversationKey) {
+                            console.error("Group conversation key not available for", data.chat_id);
+                            return;
+                        }
 
-        // Only show messages if the user is currently in that chat
-                if (data.chat_id === currentChatId) {
+                        conversationKey = await importGroupKey(GROUP_KEYS[data.chat_id]);
+                    } else {
+                        // For one-to-one chat:
+                        let participants = data.chat_id.split("_");
+                        let recipient = participants.find(u => u !== username);
+                        if (!recipient) {
+                            console.error("Recipient not found in chat_id");
+                            return;
+                        }
+                        // Check if we have already cached the recipient's public key
+                        if (!recipientPublicKeys[recipient]) {
+                            let res = await fetch(`/get_public_key/${recipient}`);
+                            let pkData = await res.json();
+                            if (pkData.public_key) {
+                                let importedKey = await crypto.subtle.importKey(
+                                    "jwk",
+                                    JSON.parse(pkData.public_key),
+                                    { name: "ECDH", namedCurve: "P-256" },
+                                    true,
+                                    [] 
+                                );
+                                recipientPublicKeys[recipient] = importedKey;
+                            } else {
+                                console.error("Recipient public key not found for", recipient);
+                                return;
+                            }
+                        }
+                        conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+                    }
+                    let plaintext = await decryptChatMessage(data.message, data.iv, conversationKey);
+                    showMessage(data.timestamp, data.sender, plaintext);
+                } else {
+                    // For unencrypted chat messages, simply display them
                     showMessage(data.timestamp, data.sender, data.message);
                 }
-            } else if (data.error) {
+            }
+            // Process file upload responses
+            else if (data.type === "file_upload_response") {
+                console.log("File uploaded successfully:", data.filename);
+                if (!availableFiles.includes(data.filename)) {
+                    availableFiles.push(data.filename);
+                    updateFileDropdown();
+                }
+                showMessage(data.timestamp, data.sender, "Uploaded file: " + data.filename);
+            }
+            // Process file download responses
+            else if (data.type === "file_download_response") {
+                console.log("File downloaded. Decrypting...");
+                console.log("Received decryption key:", data.key);
+                await decryptFile(data.filename, data.file_data, data.key);
+            }
+            // Process user list updates
+            else if (data.user_list) {
+                updateUserList(data.user_list);
+            }
+            // Process errors
+            else if (data.error) {
                 showMessage(data.timestamp, "SERVER", data.error);
             }
-            
         };
+
+
 
         window.addEventListener("beforeunload", () => {
             ws.close();  // Explicitly close WebSocket when the user closes tab
@@ -86,13 +245,22 @@
         
         ws.onclose = (event) => {
             console.log("WebSocket closed.");
-    
-            //Attempt to reconnect if it was an unexpected disconnection
-            if (!event.wasClean) {
-                console.log("Reconnecting...");
-                setTimeout(connectWebSocket, 3000); // Auto-reconnect after 3 seconds if connection is lost
-            }
-        };
+
+    // Prevents reconnection loops and tracks the number of reconnection attempts
+        let maxRetries = 5;
+        let retryCount = 0;
+
+    // Attempt to reconnect if it was an unexpected disconnection
+        if (!event.wasClean && retryCount < maxRetries) {
+            console.log("Reconnecting...");
+            setTimeout(() => {
+                connectWebSocket();
+                retryCount++;
+            }, 3000); // Auto-reconnect after 3 seconds if connection is lost
+        } else if (retryCount >= maxRetries) {
+            console.warn("Max reconnection attempts reached. Please refresh the page.");
+        }
+    };
 
         ws.onerror = (error) => {
             console.error("WebSocket error:", error);
@@ -100,7 +268,223 @@
         };
     }
 
-    connectWebSocket()
+    window.onload = async () => {
+        try {
+
+            //for file sharing 
+            decryptionKey = await getCryptoKey();
+            if (decryptionKey) {
+                console.log(" Decryption Key Loaded Successfully:", decryptionKey);
+            } else {
+                console.warn(" Warning: Failed to load AES Key.");
+            }
+
+            //for E2E chat, a public key registar
+            userKeyPair = await generateKeyPair();
+            let exportedPublic = await crypto.subtle.exportKey("jwk", userKeyPair.publicKey);
+            await fetch("/register_public_key", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: username, public_key: JSON.stringify(exportedPublic) })
+            });
+            console.log("User ECDH key pair generated and public key registered.");
+
+
+        } catch (error) {
+            console.error(" Error loading AES Key:", error);
+        }   
+
+        connectWebSocket();  
+    };
+
+
+
+       // encrypting file before upload
+    async function encryptFile(file) {
+        console.log("encryptFile called for file:", file.name);
+        if (!decryptionKey) {
+            console.error("No AES decryption key available!");
+            alert("Encryption key not loaded. Please refresh the page.");
+            return null;
+        }
+
+        let arrayBuffer = await file.arrayBuffer();
+        let iv = crypto.getRandomValues(new Uint8Array(16));
+
+        try {
+            let encryptedData = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                decryptionKey,
+                arrayBuffer
+            );
+            let encryptedArray = new Uint8Array(encryptedData); 
+            let encryptedBase64 = btoa(String.fromCharCode(...encryptedArray)); 
+            return { encryptedFile: encryptedArray,iv: iv};
+        } catch (error) {
+            console.error("Error during file encryption:", error);
+            return null;
+        }
+
+    }
+
+        
+    //  Decrypt File After Download
+    async function decryptFile(filename, encryptedData, key) {
+        try {
+            console.log("Decrypting file:", filename);
+
+            // Ensure the key is not empty or undefined
+            if (!key || key.length === 0) {
+                console.error("Missing or empty decryption key!");
+                return;
+            }
+
+            // Convert the hex string key to a Uint8Array
+            let rawKey;
+            try {
+                rawKey = new Uint8Array(key.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                console.log("Decryption key:", rawKey);
+            } catch (e) {
+                console.error("Error converting key:", e);
+                return;
+            }
+
+            // Import the key with AES-GCM parameters
+            let cryptoKey = await crypto.subtle.importKey(
+                "raw",
+                rawKey,
+                { name: "AES-GCM" },
+                false,
+                ["decrypt"]
+            );
+            console.log("CryptoKey imported:", cryptoKey);
+
+            // Convert the Base64-encoded encrypted file data to a Uint8Array
+            let encryptedBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+
+            // Extract nonce, tag, and ciphertext from the encrypted bytes
+            let nonce = encryptedBytes.slice(0, 16);       // First 16 bytes: nonce (IV)
+            let tag = encryptedBytes.slice(16, 32);        // Next 16 bytes: authentication tag
+            let ciphertext = encryptedBytes.slice(32);     // Remaining bytes: ciphertext
+
+            console.log("Nonce:", nonce);
+            console.log("Tag:", tag);
+            console.log("Ciphertext:", ciphertext);
+
+            // Reconstruct ciphertext input for decryption: tag + ciphertext
+            let ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
+            ciphertextWithTag.set(ciphertext, 0);             
+            ciphertextWithTag.set(tag, ciphertext.length);
+
+            let algorithm = {
+                name: "AES-GCM",
+                iv: nonce,
+                tagLength: 128
+            };
+
+            // Decrypt the ciphertext (which includes the tag)
+            let decrypted = await crypto.subtle.decrypt(
+                algorithm,
+                cryptoKey,
+                ciphertextWithTag
+            );
+
+            // Convert decrypted ArrayBuffer to a string
+            let decoder = new TextDecoder();
+            let plaintext = decoder.decode(decrypted);
+
+            console.log("File decrypted successfully:", plaintext);
+
+            // Create a Blob and trigger download
+            let blob = new Blob([plaintext], { type: "text/plain" });
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+
+        } catch (error) {
+            console.error("Error decrypting file:", error);
+            alert("Failed to decrypt file.");
+        }
+    }
+
+
+    // Update the dropdown options based on availableFiles array
+    function updateFileDropdown() {
+        const fileSelect = document.getElementById("file-select");
+        fileSelect.innerHTML = availableFiles
+            .map(file => `<option value="${file}">${file}</option>`)
+            .join("");
+    }
+
+     // Upload File via WebSocket
+    async function uploadFile() {
+        let fileInput = document.getElementById("file-input");
+        if (!fileInput.files.length) {
+            alert("Please select a file to upload.");
+            return;
+        }
+
+        let file = fileInput.files[0];
+        console.log(" Selected file for upload:", file.name);
+
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            alert("WebSocket is not connected. Try reloading the page.");
+            return;
+        }
+
+        try {
+            console.log("About to encrypt file:", file.name);
+
+        let { encryptedFile, iv } = await encryptFile(file);
+
+        // Encode encrypted file to Base64
+        let base64File = btoa(String.fromCharCode(...new Uint8Array(encryptedFile)));
+        let ivBase64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
+
+        ws.send(JSON.stringify({
+            type: "file_upload",
+            filename: file.name,
+            file_data: base64File,
+            iv: ivBase64,
+            username: username
+        }));
+
+        console.log("File sent for upload:", file.name);
+        } catch (error) {
+            console.error("File upload failed:", error);
+            alert("Error uploading file.");
+        }
+    }
+
+
+    
+    function downloadFile() {
+            if (availableFiles.length === 0) {
+                alert("No files available for download.");
+                return;
+            }
+        document.getElementById("file-selection-modal").style.display = "block";
+        
+    }
+
+
+    function confirmDownload() {
+        const fileSelect = document.getElementById("file-select");
+        const selectedFile = fileSelect.value;
+        if (selectedFile) {
+            ws.send(JSON.stringify({ type: "file_download", filename: selectedFile, username: username }));
+            console.log("Download request sent for:", selectedFile);
+        }
+        closeModal();
+    }
+
+
+    function closeModal() {
+    document.getElementById("file-selection-modal").style.display = "none";
+    }
+
+
 
     //Displaying online connected clients available for chat
     function updateUserList(users) {
@@ -238,23 +622,85 @@
         }
     });
 
-    //Sending formatted message to the websocket server
-    const sendMessage = () => {
+    async function sendMessage() {
+    try {
         let message = quill.root.innerHTML.trim();
-        if (message === "<p><br></p>" || message === "") return;
+        if (!message || message === "<p><br></p>") return;
+        let sanitizedMessage = DOMPurify.sanitize(message)
+            .replace(/<\/p><p>/g, " ")
+            .replace(/<p>|<\/p>/g, "")
+            .replace(/<br>/g, " ");
 
-        let sanitizedMessage = DOMPurify.sanitize(message);
-
-        // Convert paragraph breaks into spaces after sanitization
-        sanitizedMessage = sanitizedMessage.replace(/<\/p><p>/g, " ")
-                                           .replace(/<p>|<\/p>/g, "")
-                                           .replace(/<br>/g, " ");
-
-        console.log("Sending sanitized message to WS Server:", sanitizedMessage);
-        ws.send(JSON.stringify({ "chat_id": currentChatId, "sender": username, "message": sanitizedMessage }))
-
-        quill.root.innerHTML = "";
-    };
+        
+        // For public/general chat, send unencrypted:
+        if (currentChatId === "general_chat") {
+            ws.send(JSON.stringify({
+                chat_id: currentChatId,
+                sender: username,
+                message: sanitizedMessage,
+                encrypted: false,
+                timestamp: new Date().toISOString()
+            }));
+            quill.root.innerHTML = "";
+            return;
+        }
+        
+        let conversationKey;
+        if (currentChatId.startsWith("group_")) {
+            conversationKey = GROUP_KEYS[currentChatId];
+            if (!conversationKey) {
+                console.error("Group conversation key not available for", currentChatId);
+                return;
+            }
+            conversationKey = await importGroupKey(GROUP_KEYS[currentChatId]);
+        } else {
+            // For one-to-one chat, determine the recipient from the chat_id
+            let participants = currentChatId.split("_");
+            let recipient = participants.find(u => u !== username);
+            if (!recipient) {
+                console.error("Recipient not found in chat_id");
+                return;
+            }
+            if (!recipientPublicKeys[recipient]) {
+                let res = await fetch(`/get_public_key/${recipient}`);
+                let pkData = await res.json();
+                if (pkData.public_key) {
+                    let importedKey = await crypto.subtle.importKey(
+                        "jwk",
+                        JSON.parse(pkData.public_key),
+                        { name: "ECDH", namedCurve: "P-256" },
+                        true,
+                        []
+                    );
+                    recipientPublicKeys[recipient] = importedKey;
+                } else {
+                    console.error("Recipient public key not found for", recipient);
+                    return;
+                }
+            }
+            conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+        }
+        try {
+            const { ciphertext, iv } = await encryptChatMessage(sanitizedMessage, conversationKey);
+            let encodedCiphertext = btoa(String.fromCharCode(...ciphertext));
+            let encodedIv = btoa(String.fromCharCode(...iv));
+            console.log("Sending encrypted & sanitized message to WS Server:", encodedCiphertext);
+            ws.send(JSON.stringify({ 
+                chat_id: currentChatId, 
+                sender: username,
+                message: encodedCiphertext,
+                iv: encodedIv,
+                encrypted: true,
+                timestamp: new Date().toISOString()
+            }));
+            quill.root.innerHTML = "";
+        } catch (error) {
+            console.error("Error sending encrypted message:", error);
+        }
+    } catch (outerError) {
+        console.error("error sending message:", outerError);
+    }
+}
 
     // Event listener to send message on 'Enter' key
     quill.root.addEventListener("keydown", function (event) {
@@ -263,6 +709,7 @@
             sendMessage();
         }
     });
+    
 
     //Handler for "Leave Room" button
     const leaveRoom = () => {
