@@ -70,16 +70,18 @@ The application will be available at:
 ### **1️⃣ User Authentication** 
 - Users must **sign up** before logging in.  
 - Passwords are securely hashed with **Flask-Bcrypt**.  
-- Only authenticated users can participate in the chat. 
+- Only authenticated users can participate in the chat.
+- Equipped with brute-force protection 
 
 ### **2️⃣ Real-Time Messaging**  
 - Uses **WebSockets** for instant communication.  
 - Messages are broadcast to all connected users in real-time. 
 
 ### **3️⃣ Connection Handling**
-- New users can Join the chat room & receive a "joined the chat" message upon connecting.
-- Users can leave the room & trigger a "left the chat" message.
-- Users are reconnected in case of interruptions.
+- New users can create/join **private** & **group chats** upon connecting.
+- Enable chat with all connected users with a default **general chat** room.
+- Users can leave the app.
+- Users are reconnected in case of interruptions & messages are redelivered when the user was offline.
 
 ### **4️⃣ Secure Communication**  
 - **SSL/TLS Encryption** ensures all WebSocket messages are protected.  
@@ -87,6 +89,24 @@ The application will be available at:
 
 ### **5️⃣ Rate Limiting**  
 - Prevents spamming by **limiting messages per user**.  
+
+### **6️⃣ User Friendly GUI**  
+- Provides list of online users to select from for **private** and **group** chat.
+- Users can view and select their **active chats**.
+- Seamlessly **switch** between conversations without leaving the application with session chat history.
+
+### **7️⃣ File Sharing**  
+- Securely transfer files with encryption.  
+
+### **8️⃣ Emoji & Rich Media Support**  
+- Send **emojis** in chat with the Unicode emoji picker.
+- Text formatting features such as **bold, italics, underline, strikethrough, headings, superscript/subscript, bullets/numbering list, change font color & text highlight**.
+
+### **9️⃣ Session Based Logging**  
+-  Each session of user conversation is logged with timestamp in txt format in logs folder of the root directory. Example **chat_general_chat_session_2025-03-20_07-44-57**.
+
+### **🔟 End-to-end message encryption**  
+- Chat messages are end-to-end encrypted.
 
 ---
 
