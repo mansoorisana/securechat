@@ -297,7 +297,7 @@ def generate_session_filename(chat_id):
 
 
 # Logs messages to a file per chat session, with human-readable timestamps
-def log_message(chat_id, sender, message):
+def log_message(chat_id, sender, message, encodediv):
     timestamp = generate_timestamp()
     
     # Check if a session log file already exists for this chat_id
@@ -310,7 +310,7 @@ def log_message(chat_id, sender, message):
     
     # Appending the message to the session log file
     with open(session_filename, "a", encoding="utf-8") as f:
-        f.write(f"{sender}: {message} - {timestamp}\n")  
+        f.write(f"{sender}: {message} - {timestamp} - {encodediv}\n")  
 
 ###################### END SESSION BASED LOGGING ######################
 
@@ -501,7 +501,7 @@ async def broadcast_message(sender, message, chat_id):
     USER_MESSAGE_TIMESTAMPS[sender].append(current_time)
 
     # Add messages to session log file
-    log_message(chat_id, sender, message)
+    log_message(chat_id, sender, message, "No IV")
 
      # Determine recipients
     if chat_id == "general_chat":
@@ -541,11 +541,12 @@ async def broadcast_message(sender, message, chat_id):
 async def broadcast_message_data(message_data):
     #encrypted message broadcast
     print(f"Relaying encrypted message from {message_data.get('sender')}: {message_data.get('message')}")
-    log_message(message_data.get("chat_id"), message_data.get("sender"), "[encrypted message]")
+    log_message(message_data.get("chat_id"), message_data.get("sender"), message_data.get('message'), message_data.get('iv'))
+    users = set(message_data.get('chat_id').split("_"))
     tasks = []
-    for ws in CONNECTED_CLIENTS.values():
+    for user in users:
         try:
-            tasks.append(ws.send(json.dumps(message_data)))
+            tasks.append(CONNECTED_CLIENTS[user].send(json.dumps(message_data)))
         except Exception as e:
             print(f"Error sending encrypted message: {e}")
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -661,9 +662,9 @@ async def start_websocket_server():
     global stop_event
     stop_event = asyncio.Event()
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+    # loop = asyncio.get_running_loop()
+    # for sig in (signal.SIGINT, signal.SIGTERM):
+    #     loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
 
     try:
         async with websockets.serve(

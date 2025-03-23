@@ -75,7 +75,7 @@
 
     async function getCryptoKey() {
         try {
-            let response = await fetch("https://127.0.0.1:5000/get_aes_key");
+            let response = await fetch("/get_aes_key");
             let data = await response.json();
             if (data.error) {
                 console.error(" Error retrieving AES key:", data.error);
@@ -166,50 +166,58 @@
 
             // Process chat messages if present (encrypted or unencrypted)
             if (data.chat_id) {
-                // For encrypted chat messages:
-                if (data.encrypted) {
-                    let conversationKey;
-                    if (data.chat_id.startsWith("group_")) {
-                        conversationKey = GROUP_KEYS[data.chat_id];
-                        if (!conversationKey) {
-                            console.error("Group conversation key not available for", data.chat_id);
-                            return;
-                        }
+                if (!activeChats.has(data.chat_id)) {
+                    activeChats.add(data.chat_id);
+                    updateActiveChats();
+                }
 
-                        conversationKey = await importGroupKey(GROUP_KEYS[data.chat_id]);
-                    } else {
-                        // For one-to-one chat:
-                        let participants = data.chat_id.split("_");
-                        let recipient = participants.find(u => u !== username);
-                        if (!recipient) {
-                            console.error("Recipient not found in chat_id");
-                            return;
-                        }
-                        // Check if we have already cached the recipient's public key
-                        if (!recipientPublicKeys[recipient]) {
-                            let res = await fetch(`/get_public_key/${recipient}`);
-                            let pkData = await res.json();
-                            if (pkData.public_key) {
-                                let importedKey = await crypto.subtle.importKey(
-                                    "jwk",
-                                    JSON.parse(pkData.public_key),
-                                    { name: "ECDH", namedCurve: "P-256" },
-                                    true,
-                                    [] 
-                                );
-                                recipientPublicKeys[recipient] = importedKey;
-                            } else {
-                                console.error("Recipient public key not found for", recipient);
+                // Only show messages if the user is currently in that chat
+                if (data.chat_id === currentChatId) {
+                // For encrypted chat messages:
+                    if (data.encrypted) {
+                        let conversationKey;
+                        if (data.chat_id.startsWith("group_")) {
+                            conversationKey = GROUP_KEYS[data.chat_id];
+                            if (!conversationKey) {
+                                console.error("Group conversation key not available for", data.chat_id);
                                 return;
                             }
+
+                            conversationKey = await importGroupKey(GROUP_KEYS[data.chat_id]);
+                        } else {
+                            // For one-to-one chat:
+                            let participants = data.chat_id.split("_");
+                            let recipient = participants.find(u => u !== username);
+                            if (!recipient) {
+                                console.error("Recipient not found in chat_id");
+                                return;
+                            }
+                            // Check if we have already cached the recipient's public key
+                            if (!recipientPublicKeys[recipient]) {
+                                let res = await fetch(`/get_public_key/${recipient}`);
+                                let pkData = await res.json();
+                                if (pkData.public_key) {
+                                    let importedKey = await crypto.subtle.importKey(
+                                        "jwk",
+                                        JSON.parse(pkData.public_key),
+                                        { name: "ECDH", namedCurve: "P-256" },
+                                        true,
+                                        [] 
+                                    );
+                                    recipientPublicKeys[recipient] = importedKey;
+                                } else {
+                                    console.error("Recipient public key not found for", recipient);
+                                    return;
+                                }
+                            }
+                            conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
                         }
-                        conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+                        let plaintext = await decryptChatMessage(data.message, data.iv, conversationKey);
+                        showMessage(data.timestamp, data.sender, plaintext);
+                    } else {
+                        // For unencrypted chat messages, simply display them
+                        showMessage(data.timestamp, data.sender, data.message);
                     }
-                    let plaintext = await decryptChatMessage(data.message, data.iv, conversationKey);
-                    showMessage(data.timestamp, data.sender, plaintext);
-                } else {
-                    // For unencrypted chat messages, simply display them
-                    showMessage(data.timestamp, data.sender, data.message);
                 }
             }
             // Process file upload responses
@@ -569,16 +577,46 @@
             if (data.chat_logs) {
                 document.getElementById("messages").innerHTML = ""; 
                 data.chat_logs.forEach(log => {
-                    let logParts = log.trim().match(/^(.*?): (.*?) - (.*)$/);
+                    let logParts = log.trim().match(/^(.*?): (.*?) - (.*?) - (.*)$/);
                 
-                    if (logParts && logParts.length === 4) {
+                    if (logParts && logParts.length === 5) {
                         let sender = logParts[1].trim();    // Extract sender
                         let message = logParts[2].trim();   // Extract message
                         let timestamp = logParts[3].trim(); // Extract timestamp
+                        let encodedIv = logParts[4].trim(); // Extract encoded IV
 
-                        
-                        if (sender.length > 0 && message.length > 0 && timestamp.length > 0) {
+                        console.log("Sender: ",sender, " Message: ",message, " Encoded IV: ", encodedIv)
+                        if (chatId.startsWith("group_") || chatId.startsWith("general_")) {
                             showMessage(timestamp, sender, message);
+                        } else {
+                            let conversationKey;
+                            // For one-to-one chat:
+                            let participants = chatId.split("_");
+                            let recipient = participants.find(u => u !== username);
+                            console.log("recipientPublicKeys[recipient] : ", recipientPublicKeys[recipient])
+                            // Check if we have already cached the recipient's public key
+                            if (!recipientPublicKeys[recipient]) {
+                                fetch(`/get_public_key/${recipient}`)
+                                .then(res => res.json())
+                                .then(pkData => {
+                                if (pkData.public_key) {
+                                    let importedKey = crypto.subtle.importKey(
+                                        "jwk",
+                                        JSON.parse(pkData.public_key),
+                                        { name: "ECDH", namedCurve: "P-256" },
+                                        true,
+                                        [] 
+                                    );
+                                    recipientPublicKeys[recipient] = importedKey;
+                                } else {
+                                    console.error("Recipient public key not found for", recipient);
+                                }
+                            });
+                            conversationKey = deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+                            console.log("after fetch recipientPublicKeys[recipient] : ", recipientPublicKeys[recipient])
+                            let plaintext = decryptChatMessage(message, encodedIv, conversationKey);
+                            showMessage(timestamp, sender, plaintext);
+                            }
                         }
                     }
                 });
