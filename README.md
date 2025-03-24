@@ -63,6 +63,17 @@ python websocket.py
 The application will be available at:
 🔗 https://localhost:5000/home
 
+### **NOTE: SERVER DEPLOYMENT ON CLOUD**
+The server was hosted on cloud using Amazon EC2 and was available at below IP. 
+The application was available at: 🔗 https://3.148.186.254:5000/home 
+The WebSocket server ran at: 🔗 wss://3.148.186.254:8765/ 
+
+This is demonstrated in video recordings. The instance is now deleted due to uncertainty regarding duration of hosting the server & costs of using the cloud service. Refer below screenshot for server setup:
+
+![EC2 instance log](images/ssh.png?raw=true)
+
+![Server Files](images/ftp.png?raw=true)
+
 ---
 
 ## 📌 Features
@@ -96,7 +107,7 @@ The application will be available at:
 - Seamlessly **switch** between conversations without leaving the application with session chat history.
 
 ### **7️⃣ File Sharing**  
-- Securely transfer files with encryption.  
+- Securely transfer text files with encryption.  
 
 ### **8️⃣ Emoji & Rich Media Support**  
 - Send **emojis** in chat with the Unicode emoji picker.
