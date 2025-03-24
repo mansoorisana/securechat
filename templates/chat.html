@@ -313,28 +313,18 @@
     }
 
         
-    //  Decrypt File After Download
     async function decryptFile(filename, encryptedData, key) {
         try {
             console.log("Decrypting file:", filename);
 
-            // Ensure the key is not empty or undefined
+       
             if (!key || key.length === 0) {
                 console.error("Missing or empty decryption key!");
                 return;
             }
 
-            // Convert the hex string key to a Uint8Array
-            let rawKey;
-            try {
-                rawKey = new Uint8Array(key.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                console.log("Decryption key:", rawKey);
-            } catch (e) {
-                console.error("Error converting key:", e);
-                return;
-            }
-
-            // Import the key with AES-GCM parameters
+          
+            let rawKey = new Uint8Array(key.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
             let cryptoKey = await crypto.subtle.importKey(
                 "raw",
                 rawKey,
@@ -342,23 +332,18 @@
                 false,
                 ["decrypt"]
             );
-            console.log("CryptoKey imported:", cryptoKey);
 
-            // Convert the Base64-encoded encrypted file data to a Uint8Array
+            
             let encryptedBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
 
-            // Extract nonce, tag, and ciphertext from the encrypted bytes
-            let nonce = encryptedBytes.slice(0, 16);       // First 16 bytes: nonce (IV)
-            let tag = encryptedBytes.slice(16, 32);        // Next 16 bytes: authentication tag
-            let ciphertext = encryptedBytes.slice(32);     // Remaining bytes: ciphertext
+            
+            let nonce = encryptedBytes.slice(0, 16);
+            let tag = encryptedBytes.slice(16, 32);
+            let ciphertext = encryptedBytes.slice(32);
 
-            console.log("Nonce:", nonce);
-            console.log("Tag:", tag);
-            console.log("Ciphertext:", ciphertext);
-
-            // Reconstruct ciphertext input for decryption: tag + ciphertext
+            
             let ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
-            ciphertextWithTag.set(ciphertext, 0);             
+            ciphertextWithTag.set(ciphertext, 0);
             ciphertextWithTag.set(tag, ciphertext.length);
 
             let algorithm = {
@@ -367,21 +352,17 @@
                 tagLength: 128
             };
 
-            // Decrypt the ciphertext (which includes the tag)
-            let decrypted = await crypto.subtle.decrypt(
+        
+            let decryptedBuffer = await crypto.subtle.decrypt(
                 algorithm,
                 cryptoKey,
                 ciphertextWithTag
             );
 
-            // Convert decrypted ArrayBuffer to a string
-            let decoder = new TextDecoder();
-            let plaintext = decoder.decode(decrypted);
+            console.log("File decrypted successfully.");
 
-            console.log("File decrypted successfully:", plaintext);
-
-            // Create a Blob and trigger download
-            let blob = new Blob([plaintext], { type: "text/plain" });
+           
+            let blob = new Blob([decryptedBuffer], { type: "text/plain;charset=utf-8" });
             let link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
             link.download = filename;
@@ -392,6 +373,8 @@
             alert("Failed to decrypt file.");
         }
     }
+
+
 
 
     // Update the dropdown options based on availableFiles array
