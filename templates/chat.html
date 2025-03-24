@@ -29,7 +29,9 @@
 
     <div class="chat-box">
         <h3 id="chat-header">General Chat Room</h3>
-        <button id="go-to-general-btn" style="display: none;" onclick="goToGeneralChat()">Go Back to General Chat</button>
+        <p id="dm-info" style="display: none; font-size: 12px; font-style: italic; color: #e91414; margin: 5px 0;">
+            This chat window is end-to-end encrypted. Messages only show as plaintext while both users are in this window.
+        </p>
         <div class="messages" id="messages"></div>
 
         <div class="input-text">
@@ -39,10 +41,10 @@
             <div class="file-controls">
                 <span class="file-label">Upload File</span>
                 <input type="file" id="file-input" style="display: none;" onchange="uploadFile()" />
-                <button id="upload-btn" onclick="document.getElementById('file-input').click();" title="Upload File">📤</button>
+                <button id="upload-btn" onclick="document.getElementById('file-input').click();" title="Upload File">⬆️</button>
 
                 <span class="file-label">Download File</span>
-                <button id="download-btn" onclick="downloadFile()" title="Download File">📥</button>
+                <button id="download-btn" onclick="downloadFile()" title="Download File">⬇️</button>
             </div>
             <div id="file-selection-modal" style="display: none;">
                 <label for="file-select">Select file to download:</label>
@@ -62,14 +64,11 @@
     let currentChatId = "general_chat";
     let activeChats = new Set(); 
 
-    // secure file sharing variables
+    // secure file sharing variables & e2e keys
     let decryptionKey; //AES key  file sharing
     let availableFiles = []; 
-
-    //for e2e variables
     let userKeyPair; 
     let recipientPublicKeys = {};
-    let GROUP_KEYS = {};
 
 
 
@@ -136,19 +135,6 @@
         return new TextDecoder().decode(decryptedBuffer);
     }
 
-       // Converts a hex string group key to a CryptoKey for AES-GCM
-       async function importGroupKey(hexKey) {
-        // Convert hex string to a Uint8Array
-        let keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        return await crypto.subtle.importKey(
-            "raw",
-            keyBytes,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["encrypt", "decrypt"]
-        );
-    }
-
 
     
     function connectWebSocket() {
@@ -171,51 +157,38 @@
                     updateActiveChats();
                 }
 
-                // Only show messages if the user is currently in that chat
+               // Only display the message if it belongs to the currently active chat window
                 if (data.chat_id === currentChatId) {
-                // For encrypted chat messages:
-                    if (data.encrypted) {
-                        let conversationKey;
-                        if (data.chat_id.startsWith("group_")) {
-                            conversationKey = GROUP_KEYS[data.chat_id];
-                            if (!conversationKey) {
-                                console.error("Group conversation key not available for", data.chat_id);
-                                return;
-                            }
-
-                            conversationKey = await importGroupKey(GROUP_KEYS[data.chat_id]);
-                        } else {
-                            // For one-to-one chat:
-                            let participants = data.chat_id.split("_");
-                            let recipient = participants.find(u => u !== username);
-                            if (!recipient) {
-                                console.error("Recipient not found in chat_id");
-                                return;
-                            }
-                            // Check if we have already cached the recipient's public key
-                            if (!recipientPublicKeys[recipient]) {
-                                let res = await fetch(`/get_public_key/${recipient}`);
-                                let pkData = await res.json();
-                                if (pkData.public_key) {
-                                    let importedKey = await crypto.subtle.importKey(
-                                        "jwk",
-                                        JSON.parse(pkData.public_key),
-                                        { name: "ECDH", namedCurve: "P-256" },
-                                        true,
-                                        [] 
-                                    );
-                                    recipientPublicKeys[recipient] = importedKey;
-                                } else {
-                                    console.error("Recipient public key not found for", recipient);
-                                    return;
-                                }
-                            }
-                            conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+                    if (data.encrypted && !data.chat_id.startsWith("group_")) {
+                        // DM message decryption branch
+                        let participants = data.chat_id.split("_");
+                        let recipient = participants.find(u => u !== username);
+                        if (!recipient) {
+                            console.error("Recipient not found in chat_id");
+                            return;
                         }
+                        if (!recipientPublicKeys[recipient]) {
+                            let res = await fetch(`/get_public_key/${recipient}`);
+                            let pkData = await res.json();
+                            if (pkData.public_key) {
+                                let importedKey = await crypto.subtle.importKey(
+                                    "jwk",
+                                    JSON.parse(pkData.public_key),
+                                    { name: "ECDH", namedCurve: "P-256" },
+                                    true,
+                                    [] 
+                                );
+                                recipientPublicKeys[recipient] = importedKey;
+                            } else {
+                                console.error("Recipient public key not found for", recipient);
+                                return;
+                            }
+                        }
+                        let conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
                         let plaintext = await decryptChatMessage(data.message, data.iv, conversationKey);
                         showMessage(data.timestamp, data.sender, plaintext);
                     } else {
-                        // For unencrypted chat messages, simply display them
+                        // For general and group chats, display the plain text message.
                         showMessage(data.timestamp, data.sender, data.message);
                     }
                 }
@@ -254,21 +227,21 @@
         ws.onclose = (event) => {
             console.log("WebSocket closed.");
 
-    // Prevents reconnection loops and tracks the number of reconnection attempts
-        let maxRetries = 5;
-        let retryCount = 0;
+            // Prevents reconnection loops and tracks the number of reconnection attempts
+            let maxRetries = 5;
+            let retryCount = 0;
 
-    // Attempt to reconnect if it was an unexpected disconnection
-        if (!event.wasClean && retryCount < maxRetries) {
-            console.log("Reconnecting...");
-            setTimeout(() => {
-                connectWebSocket();
-                retryCount++;
-            }, 3000); // Auto-reconnect after 3 seconds if connection is lost
-        } else if (retryCount >= maxRetries) {
-            console.warn("Max reconnection attempts reached. Please refresh the page.");
-        }
-    };
+            // Attempt to reconnect if it was an unexpected disconnection
+            if (!event.wasClean && retryCount < maxRetries) {
+                console.log("Reconnecting...");
+                setTimeout(() => {
+                    connectWebSocket();
+                    retryCount++;
+                }, 3000); // Auto-reconnect after 3 seconds if connection is lost
+            } else if (retryCount >= maxRetries) {
+                console.warn("Max reconnection attempts reached. Please refresh the page.");
+            }
+        };
 
         ws.onerror = (error) => {
             console.error("WebSocket error:", error);
@@ -276,6 +249,7 @@
         };
     }
 
+    // when the window lodas, it loads file sharing keys and E2E keys
     window.onload = async () => {
         try {
 
@@ -556,74 +530,73 @@
         updateActiveChats();
     }
 
-    //Displaying active chats for the user
-    function updateActiveChats() {
-        let activeChatsDiv = document.getElementById("active-chats");
-        activeChatsDiv.innerHTML = Array.from(activeChats)
-            .map(chat => `<button class="chat-item-btn" onclick="loadChat('${chat}')">${chat}</button><br>`)
-            .join("");
-    }
     // Displaying selected chat messages with history
-    function loadChat(chatId) {
+    async function loadChat(chatId) {
         currentChatId = chatId;
         document.getElementById("chat-header").innerText = "Chat: " + chatId;
         document.getElementById("messages").innerHTML = "";
-        document.getElementById("go-to-general-btn").style.display = chatId === "general_chat" ? "none" : "block";
 
-        fetch(`/chat/${chatId}?t=${new Date().getTime()}`)
-        .then(res => res.json())
-        .then(data => {
-            console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
-            if (data.chat_logs) {
-                document.getElementById("messages").innerHTML = ""; 
-                data.chat_logs.forEach(log => {
-                    let logParts = log.trim().match(/^(.*?): (.*?) - (.*?) - (.*)$/);
-                
-                    if (logParts && logParts.length === 5) {
-                        let sender = logParts[1].trim();    // Extract sender
-                        let message = logParts[2].trim();   // Extract message
-                        let timestamp = logParts[3].trim(); // Extract timestamp
-                        let encodedIv = logParts[4].trim(); // Extract encoded IV
+         // Shows the E2E notice 
+        const dmInfo = document.getElementById("dm-info");
 
-                        console.log("Sender: ",sender, " Message: ",message, " Encoded IV: ", encodedIv)
-                        if (chatId.startsWith("group_") || chatId.startsWith("general_")) {
-                            showMessage(timestamp, sender, message);
-                        } else {
-                            let conversationKey;
-                            // For one-to-one chat:
-                            let participants = chatId.split("_");
-                            let recipient = participants.find(u => u !== username);
-                            console.log("recipientPublicKeys[recipient] : ", recipientPublicKeys[recipient])
-                            // Check if we have already cached the recipient's public key
-                            if (!recipientPublicKeys[recipient]) {
-                                fetch(`/get_public_key/${recipient}`)
-                                .then(res => res.json())
-                                .then(pkData => {
-                                if (pkData.public_key) {
-                                    let importedKey = crypto.subtle.importKey(
-                                        "jwk",
-                                        JSON.parse(pkData.public_key),
-                                        { name: "ECDH", namedCurve: "P-256" },
-                                        true,
-                                        [] 
-                                    );
-                                    recipientPublicKeys[recipient] = importedKey;
-                                } else {
-                                    console.error("Recipient public key not found for", recipient);
-                                }
-                            });
-                            conversationKey = deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
-                            console.log("after fetch recipientPublicKeys[recipient] : ", recipientPublicKeys[recipient])
-                            let plaintext = decryptChatMessage(message, encodedIv, conversationKey);
-                            showMessage(timestamp, sender, plaintext);
-                            }
-                        }
-                    }
-                });
-            }
-        });
-    }
+        if (chatId === "general_chat") {
         
+        dmInfo.style.display = "none";
+        } else if (chatId.startsWith("group_")) {
+
+            dmInfo.style.display = "none";
+        } else {
+       
+            dmInfo.style.display = "block";
+        }
+
+        let response = await fetch(`/chat/${chatId}?t=${new Date().getTime()}`);
+        let data = await response.json();
+        console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
+        if (data.chat_logs) {
+            for (let log of data.chat_logs) {
+                let logParts = log.trim().match(/^(.*?): (.*?) - (.*?) - (.*)$/);
+                if (logParts && logParts.length === 5) {
+                    let sender = logParts[1].trim();
+                    let message = logParts[2].trim();
+                    let timestamp = logParts[3].trim();
+                    let encodedIv = logParts[4].trim();
+                    if (chatId !== "general_chat" && !chatId.startsWith("group_")) {
+                            
+                        try {
+                            let parsed = JSON.parse(message);
+                            showMessage(timestamp, sender, `[Encrypted] ${parsed.ciphertext}`);
+                        } catch (e) {
+                            console.error("Failed to fecth encrypted DM log:", message, e);
+                           
+                            showMessage(timestamp, sender, message);
+                        }
+                    } else {
+                        // For general or group chats, load the messages in plaintext
+                        showMessage(timestamp, sender, message);
+                    }
+                }
+            }
+        }
+        updateActiveChats();
+    }
+
+
+     //Displaying active chats for the user
+    function updateActiveChats() {
+        let activeChatsDiv = document.getElementById("active-chats");
+        activeChatsDiv.innerHTML = Array.from(activeChats)
+            .map(chat => { 
+                let isActive = (chat === currentChatId);
+                let btnClass = isActive ? 'chat-item-btn active-chat' : 'chat-item-btn';
+
+                return `<button class="${btnClass}" onclick="loadChat('${chat}')">${chat}</button><br>`;
+            })
+            .join("");
+    }
+
+
+
     //Displaying received message in our chat-box div
     const messages = document.getElementById("messages")
     const showMessage = (timstamp,sender,msg) => {
@@ -668,44 +641,25 @@
             .replace(/<\/p><p>/g, " ")
             .replace(/<p>|<\/p>/g, "")
             .replace(/<br>/g, " ");
-
         
-        // For public/general chat, send unencrypted:
-        if (currentChatId === "general_chat") {
-            ws.send(JSON.stringify({
-                chat_id: currentChatId,
-                sender: username,
-                message: sanitizedMessage,
-                encrypted: false,
-                timestamp: new Date().toISOString()
-            }));
-            quill.root.innerHTML = "";
-            return;
-        }
         
-        let conversationKey;
-        if (currentChatId.startsWith("group_")) {
-            conversationKey = GROUP_KEYS[currentChatId];
-            if (!conversationKey) {
-                console.error("Group conversation key not available for", currentChatId);
-                return;
-            }
-            conversationKey = await importGroupKey(GROUP_KEYS[currentChatId]);
-        } else {
-            // For one-to-one chat, determine the recipient from the chat_id
+        if (currentChatId !== "general_chat" && !currentChatId.startsWith("group_")) {
+            // This branch is for one-to-one DM chats (encrypted)
             let participants = currentChatId.split("_");
             let recipient = participants.find(u => u !== username);
             if (!recipient) {
                 console.error("Recipient not found in chat_id");
                 return;
             }
+            // Cache public key if not already cached.
             if (!recipientPublicKeys[recipient]) {
                 let res = await fetch(`/get_public_key/${recipient}`);
                 let pkData = await res.json();
                 if (pkData.public_key) {
+                    let jwk = JSON.parse(pkData.public_key);
                     let importedKey = await crypto.subtle.importKey(
                         "jwk",
-                        JSON.parse(pkData.public_key),
+                        jwk,
                         { name: "ECDH", namedCurve: "P-256" },
                         true,
                         []
@@ -716,29 +670,38 @@
                     return;
                 }
             }
-            conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
-        }
-        try {
+            let conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
             const { ciphertext, iv } = await encryptChatMessage(sanitizedMessage, conversationKey);
             let encodedCiphertext = btoa(String.fromCharCode(...ciphertext));
             let encodedIv = btoa(String.fromCharCode(...iv));
             console.log("Sending encrypted & sanitized message to WS Server:", encodedCiphertext);
-            ws.send(JSON.stringify({ 
-                chat_id: currentChatId, 
+            ws.send(JSON.stringify({
+                chat_id: currentChatId,
                 sender: username,
                 message: encodedCiphertext,
                 iv: encodedIv,
                 encrypted: true,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toLocaleTimeString()
             }));
             quill.root.innerHTML = "";
-        } catch (error) {
-            console.error("Error sending encrypted message:", error);
+        } else {
+            // This branch handles general and group chats (unencrypted)
+            ws.send(JSON.stringify({
+                chat_id: currentChatId,
+                sender: username,
+                message: sanitizedMessage,
+                encrypted: false,
+                timestamp: new Date().toLocaleTimeString()
+            }));
+            quill.root.innerHTML = "";
         }
-    } catch (outerError) {
-        console.error("error sending message:", outerError);
+
+        
+        } catch (outerError) {
+            console.error("error sending message:", outerError);
+        }
     }
-}
+
 
     // Event listener to send message on 'Enter' key
     quill.root.addEventListener("keydown", function (event) {
