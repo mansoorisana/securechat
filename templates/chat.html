@@ -63,12 +63,15 @@
     let username = "{{ username }}";
     let currentChatId = "general_chat";
     let activeChats = new Set(); 
+    let chatLogsCache = {};
+
 
     // secure file sharing variables & e2e keys
     let decryptionKey; //AES key  file sharing
     let availableFiles = []; 
     let userKeyPair; 
     let recipientPublicKeys = {};
+
 
 
 
@@ -530,56 +533,53 @@
         updateActiveChats();
     }
 
-    // Displaying selected chat messages with history
-    async function loadChat(chatId) {
-        currentChatId = chatId;
-        document.getElementById("chat-header").innerText = "Chat: " + chatId;
-        document.getElementById("messages").innerHTML = "";
+async function loadChat(chatId) {
+    currentChatId = chatId;
+    document.getElementById("chat-header").innerText = "Chat: " + chatId;
+    const messagesDiv = document.getElementById("messages");
+    messagesDiv.innerHTML = "";
 
-         // Shows the E2E notice 
-        const dmInfo = document.getElementById("dm-info");
-
-        if (chatId === "general_chat") {
-        
+    // Show/hide the end-to-end encrypted DM notice.
+    const dmInfo = document.getElementById("dm-info");
+    if (chatId === "general_chat" || chatId.startsWith("group_")) {
         dmInfo.style.display = "none";
-        } else if (chatId.startsWith("group_")) {
+    } else {
+        dmInfo.style.display = "block";
+    }
 
-            dmInfo.style.display = "none";
-        } else {
-       
-            dmInfo.style.display = "block";
-        }
-
-        let response = await fetch(`/chat/${chatId}?t=${new Date().getTime()}`);
-        let data = await response.json();
-        console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
-        if (data.chat_logs) {
-            for (let log of data.chat_logs) {
-                let logParts = log.trim().match(/^(.*?): (.*?) - (.*?) - (.*)$/);
-                if (logParts && logParts.length === 5) {
-                    let sender = logParts[1].trim();
-                    let message = logParts[2].trim();
-                    let timestamp = logParts[3].trim();
-                    let encodedIv = logParts[4].trim();
-                    if (chatId !== "general_chat" && !chatId.startsWith("group_")) {
-                            
-                        try {
-                            let parsed = JSON.parse(message);
-                            showMessage(timestamp, sender, `[Encrypted] ${parsed.ciphertext}`);
-                        } catch (e) {
-                            console.error("Failed to fecth encrypted DM log:", message, e);
-                           
-                            showMessage(timestamp, sender, message);
-                        }
-                    } else {
-                        // For general or group chats, load the messages in plaintext
-                        showMessage(timestamp, sender, message);
+    // Always re-fetch logs from the server (i.e. do not use caching)
+    let response = await fetch(`/chat/${chatId}?t=${new Date().getTime()}`);
+    let data = await response.json();
+    console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
+    if (data.chat_logs) {
+        // Expect log format: "Sender: logged_message - timestamp"
+        for (let log of data.chat_logs) {
+            let logParts = log.trim().match(/^(.*?): (.*?) - (.*)$/);
+            if (logParts && logParts.length === 4) {
+                let sender = logParts[1].trim();
+                let loggedMessage = logParts[2].trim();
+                let timestamp = logParts[3].trim();
+                if (chatId !== "general_chat" && !chatId.startsWith("group_")) {
+                    // DM chat: the logged message is stored as JSON.
+                    try {
+                        let parsed = JSON.parse(loggedMessage);
+                        showMessage(timestamp, sender, `[Encrypted] ${parsed.ciphertext}`);
+                    } catch (e) {
+                        console.error("Failed to parse encrypted DM log:", loggedMessage, e);
+                        showMessage(timestamp, sender, loggedMessage);
                     }
+                } else {
+                    // For general or group chats, show the plaintext logged message.
+                    showMessage(timestamp, sender, loggedMessage);
                 }
+            } else {
+                console.warn("Log line did not split as expected:", log);
             }
         }
-        updateActiveChats();
     }
+    updateActiveChats();
+}
+
 
 
      //Displaying active chats for the user
