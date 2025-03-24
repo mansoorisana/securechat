@@ -299,6 +299,16 @@ def generate_session_filename(chat_id):
 # Logs messages to a file per chat session, with human-readable timestamps
 def log_message(chat_id, sender, message, encodediv):
     timestamp = generate_timestamp()
+
+ 
+    if encodediv and encodediv != "No IV":
+        # For encrypted messages, store the encrypted payload as JSON.
+        message_to_log = json.dumps({
+            "ciphertext": message,
+            "iv": encodediv
+        })
+    else:
+        message_to_log = message  # Plain text for unencrypted messages
     
     # Check if a session log file already exists for this chat_id
     if chat_id not in LOG_FILE_TRACKER:
@@ -310,7 +320,7 @@ def log_message(chat_id, sender, message, encodediv):
     
     # Appending the message to the session log file
     with open(session_filename, "a", encoding="utf-8") as f:
-        f.write(f"{sender}: {message} - {timestamp} - {encodediv}\n")  
+        f.write(f"{sender}: {message_to_log} - {timestamp}\n")  
 
 ###################### END SESSION BASED LOGGING ######################
 
@@ -541,14 +551,27 @@ async def broadcast_message(sender, message, chat_id):
 async def broadcast_message_data(message_data):
     #encrypted message broadcast
     print(f"Relaying encrypted message from {message_data.get('sender')}: {message_data.get('message')}")
-    log_message(message_data.get("chat_id"), message_data.get("sender"), message_data.get('message'), message_data.get('iv'))
-    users = set(message_data.get('chat_id').split("_"))
+    log_message(
+        message_data.get("chat_id"),
+        message_data.get("sender"),
+        message_data.get("message"),
+        message_data.get("iv")
+    )
+    # Determine recipients:
+    if not message_data.get("chat_id").startswith("group_"):
+        # For DM chats, the chat_id is formatted as "Alice_Bob"
+        recipients = set(message_data.get("chat_id").split("_"))
+    else:
+        recipients = set(GROUP_CHATS.get(message_data.get("chat_id"), []))
+    
+    
     tasks = []
-    for user in users:
-        try:
-            tasks.append(CONNECTED_CLIENTS[user].send(json.dumps(message_data)))
-        except Exception as e:
-            print(f"Error sending encrypted message: {e}")
+    for user in recipients:
+        if user in CONNECTED_CLIENTS:
+            try:
+                tasks.append(CONNECTED_CLIENTS[user].send(json.dumps(message_data)))
+            except Exception as e:
+                print(f"Error sending encrypted message to {user}: {e}")
     await asyncio.gather(*tasks, return_exceptions=True)
 
 ###################### END MESSAGE ROUTING ######################
