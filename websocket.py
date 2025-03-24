@@ -29,7 +29,7 @@ BRUTE_FORCE_LIMITS = ["5 per 5 minutes"]  # Brute force protection
 UPLOAD_FOLDER = "uploads"  # File uploading folder
 USER_FILE_KEYS = {}  #storage for secure filesharing encryption keys
 AES_KEY = None
-GROUP_KEYS = {} # symmetric key storage fro group chats
+
 
 #tracks websocket shutdown signal
 shutdown_initiated = False  
@@ -412,17 +412,7 @@ def create_group():
     chat_id = f"group_{group_name}"
     GROUP_CHATS[chat_id] = members
 
-    #group symmetric key generation and distribution 
-    group_key = get_random_bytes(32)  
-    global GROUP_KEYS
-    try:
-        GROUP_KEYS
-    except NameError:
-        GROUP_KEYS = {}
-    GROUP_KEYS[chat_id] = group_key.hex()
-
-
-    return jsonify({"chat_id": chat_id, "members": members, "group_key": GROUP_KEYS[chat_id]})
+    return jsonify({"chat_id": chat_id, "members": members,})
 
 
 @app.route("/leave")
