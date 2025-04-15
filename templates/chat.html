@@ -516,52 +516,90 @@
         updateActiveChats();
     }
 
-async function loadChat(chatId) {
-    currentChatId = chatId;
-    document.getElementById("chat-header").innerText = "Chat: " + chatId;
-    const messagesDiv = document.getElementById("messages");
-    messagesDiv.innerHTML = "";
+    async function loadChat(chatId) {
+        // Set the current chat ID and update the chat header.
+        currentChatId = chatId;
+        document.getElementById("chat-header").innerText = "Chat: " + chatId;
+        const messagesDiv = document.getElementById("messages");
+        messagesDiv.innerHTML = "";
 
-    // Show/hide the end-to-end encrypted DM notice.
-    const dmInfo = document.getElementById("dm-info");
-    if (chatId === "general_chat" || chatId.startsWith("group_")) {
-        dmInfo.style.display = "none";
-    } else {
-        dmInfo.style.display = "block";
-    }
+        // Show or hide the DM E2E notice as appropriate:
+        const dmInfo = document.getElementById("dm-info");
+        if (chatId === "general_chat" || chatId.startsWith("group_")) {
+            dmInfo.style.display = "none";
+        } else {
+            dmInfo.style.display = "block";
+        }
 
-    // Always re-fetch logs from the server (i.e. do not use caching)
-    let response = await fetch(`/chat/${chatId}?t=${new Date().getTime()}`);
-    let data = await response.json();
-    console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
-    if (data.chat_logs) {
-        // Expect log format: "Sender: logged_message - timestamp"
-        for (let log of data.chat_logs) {
-            let logParts = log.trim().match(/^(.*?): (.*?) - (.*)$/);
-            if (logParts && logParts.length === 4) {
-                let sender = logParts[1].trim();
-                let loggedMessage = logParts[2].trim();
-                let timestamp = logParts[3].trim();
-                if (chatId !== "general_chat" && !chatId.startsWith("group_")) {
-                    // DM chat: the logged message is stored as JSON.
-                    try {
-                        let parsed = JSON.parse(loggedMessage);
-                        showMessage(timestamp, sender, `[Encrypted] ${parsed.ciphertext}`);
-                    } catch (e) {
-                        console.error("Failed to parse encrypted DM log:", loggedMessage, e);
+        // Fetch the chat logs from the server.
+        let response = await fetch(`/chat/${chatId}?t=${new Date().getTime()}`);
+        let data = await response.json();
+        console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
+        
+        if (data.chat_logs) {
+            //each log line in the persistent log to be in this format:
+            // "Sender: logged_message - timestamp"
+            // For DMs, logged_message is a JSON string: 
+            for (let log of data.chat_logs) {
+                // Using a regex that splits into three parts.
+                let logParts = log.trim().match(/^(.*?): (.*?) - (.*)$/);
+                if (logParts && logParts.length === 4) {
+                    let sender = logParts[1].trim();
+                    let loggedMessage = logParts[2].trim(); 
+                    let timestamp = logParts[3].trim();
+                    
+                    // If it's a DM (direct message) then perform decryption.
+                    if (chatId !== "general_chat" && !chatId.startsWith("group_")) {
+                        try {
+                            // Parse the logged message, which should be a JSON string.
+                            let parsed = JSON.parse(loggedMessage);
+                            
+                            // Determine the recipient 
+                            let participants = chatId.split("_");
+                            let recipient = participants.find(u => u !== username);
+                            if (!recipient) {
+                                console.error("Recipient not found in chat_id:", chatId);
+                                continue;
+                            }
+                            // Retrieve or import the recipient's public key.
+                            if (!recipientPublicKeys[recipient]) {
+                                let res = await fetch(`/get_public_key/${recipient}`);
+                                let pkData = await res.json();
+                                if (pkData.public_key) {
+                                    let importedKey = await crypto.subtle.importKey(
+                                        "jwk",
+                                        JSON.parse(pkData.public_key),
+                                        { name: "ECDH", namedCurve: "P-256" },
+                                        true,
+                                        []
+                                    );
+                                    recipientPublicKeys[recipient] = importedKey;
+                                } else {
+                                    console.error("Recipient public key not found for", recipient);
+                                    continue;
+                                }
+                            }
+                            // Derive the symmetric AES-GCM key
+                            let conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+                            // Decrypt the ciphertext using the derived key and the provided IV.
+                            let plaintext = await decryptChatMessage(parsed.ciphertext, parsed.iv, conversationKey);
+                            showMessage(timestamp, sender, plaintext);
+                        } catch (e) {
+                            console.error("Error decrypting DM log:", loggedMessage, e);
+                            showMessage(timestamp, sender, "Decryption failed");
+                        }
+                    } else {
+                        // For general, display plaintext msgs.
                         showMessage(timestamp, sender, loggedMessage);
                     }
                 } else {
-                    // For general or group chats, show the plaintext logged message.
-                    showMessage(timestamp, sender, loggedMessage);
+                    console.warn("Log line did not split as expected:", log);
                 }
-            } else {
-                console.warn("Log line did not split as expected:", log);
             }
         }
+        updateActiveChats();
     }
-    updateActiveChats();
-}
+
 
 
 
