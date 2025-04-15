@@ -701,8 +701,7 @@
                 sender: username,
                 message: encodedCiphertext,
                 iv: encodedIv,
-                encrypted: true,
-                timestamp: new Date().toLocaleTimeString()
+                encrypted: true
             }));
             quill.root.innerHTML = "";
         } else {
@@ -711,8 +710,7 @@
                 chat_id: currentChatId,
                 sender: username,
                 message: sanitizedMessage,
-                encrypted: false,
-                timestamp: new Date().toLocaleTimeString()
+                encrypted: false
             }));
             quill.root.innerHTML = "";
         }

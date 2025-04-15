@@ -539,7 +539,11 @@ async def broadcast_message(sender, message, chat_id):
 
 
 async def broadcast_message_data(message_data):
-    #encrypted message broadcast
+    #gets timestamp for msg
+    timestamp = generate_timestamp()
+    message_data["timestamp"] = timestamp 
+
+    #log encrypted message 
     print(f"Relaying encrypted message from {message_data.get('sender')}: {message_data.get('message')}")
     log_message(
         message_data.get("chat_id"),
@@ -549,7 +553,7 @@ async def broadcast_message_data(message_data):
     )
     # Determine recipients:
     if not message_data.get("chat_id").startswith("group_"):
-        # For DM chats, the chat_id is formatted as "Alice_Bob"
+        # For DM chats, the chat_id is formatted as "User1_User2"
         recipients = set(message_data.get("chat_id").split("_"))
     else:
         recipients = set(GROUP_CHATS.get(message_data.get("chat_id"), []))
