@@ -265,16 +265,14 @@ async def handle_file_download(websocket, username, data):
 
 # ssl cert implementation 
 
-SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "your_cert.pem") 
-SSL_KEY_PATH = os.getenv("SSL_KEY_PATH", "your_key.pem")     
+USE_SELF_SIGNED_SSL = os.environ.get("USE_SELF_SIGNED_SSL", "false").lower() == "true"
 
-if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
-    print("SSL Certificate and Key not found. ")
-    print("Please use the instructions in README.md to create SSL cert before running the server.\n")
-    sys.exit(1) 
-
-SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
+SSL_CONTEXT = None 
+if USE_SELF_SIGNED_SSL: 
+    SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "your_cert.pem") 
+    SSL_KEY_PATH = os.getenv("SSL_KEY_PATH", "your_key.pem")     
+    SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    SSL_CONTEXT.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
 
 ###################### END SSL ######################
 
@@ -719,8 +717,10 @@ async def start_websocket_server():
             8765, 
             ssl = SSL_CONTEXT, 
             ping_interval = HEARTBEAT_INTERVAL, 
-            ping_timeout = HEARTBEAT_TIMEOUT):
-            print("Secure WebSocket server started with (wss://)")
+            ping_timeout = HEARTBEAT_TIMEOUT,
+        ):
+            proto = "wss" if SSL_CONTEXT else "ws"
+            print(f"{proto.upper}Secure WebSocket server started with (wss://0.0.0.0:8765)")
             await stop_event.wait()  # Waits for server shutdown signal
     except asyncio.CancelledError:
         print("\nWebSocket server shutting down cleanly...")
@@ -730,9 +730,18 @@ async def start_websocket_server():
 ###################### END WEB SOCKET CONNECTION ######################
 
 if __name__ == '__main__':
-    #Starting Flask in main thread with SSL
+    #Starting Flask in main thread
+    flask_port = int(os.environ.get("PORT", 5000))
+
     flask_thread = threading.Thread(
-        target=lambda: app.run(host= "0.0.0.0", port=5000, ssl_context=(SSL_CERT_PATH, SSL_KEY_PATH), use_reloader=False),daemon=True)
+        target=lambda: app.run(
+            host= "0.0.0.0", 
+            port=flask_port, 
+            ssl_context=SSL_CONTEXT if USE_SELF_SIGNED_SSL else None, 
+            use_reloader=False,
+        ),
+            daemon=True,
+    )
     flask_thread.start()
 
      # Run WebSocket server properly
