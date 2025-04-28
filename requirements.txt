@@ -5,3 +5,4 @@ flask-limiter
 websockets
 python-dotenv
 pycryptodome
+pymysql 
