@@ -632,6 +632,32 @@ async def websocket_server(websocket, path=None):
                         msg_text = message_data["message"]
                         print(f"Chat message received from {sender}: {msg_text}")
                         await broadcast_message(sender, msg_text, chat_id)
+                
+                # Typing indicator sent
+                elif message_data.get("type") == "typing":
+                    sender = message_data.get("sender")
+                    is_typing = message_data.get("isTyping")
+                    chat_id = message_data.get("chat_id")
+
+                    # If group chat
+                    if chat_id.startswith("group_") and chat_id in GROUP_CHATS:
+                        recipients = GROUP_CHATS[chat_id]
+                    elif chat_id == "general_chat":
+                        recipients = list(CONNECTED_CLIENTS.keys())
+                    else:  # If Private chat
+                        recipient = chat_id.replace(sender + "_", "").replace("_" + sender, "")
+                        recipients = [recipient]
+
+                    # Send typing notification to relevant users
+                    for user in recipients:
+                        if user in CONNECTED_CLIENTS and user != sender:
+                            await CONNECTED_CLIENTS[user].send(json.dumps({
+                                "type": "typing",
+                                "sender": sender,
+                                "isTyping": is_typing,
+                                "chat_id": chat_id
+                            }))
+                
                 else:
                     print("Invalid message format received:", message_data)
                     await websocket.send(json.dumps({"error": "Invalid message format"}))

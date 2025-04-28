@@ -33,6 +33,7 @@
             This chat window is end-to-end encrypted. Messages only show as plaintext while both users are in this window.
         </p>
         <div class="messages" id="messages"></div>
+        <div id="typing-indicator"></div>
 
         <div class="input-text">
             <!-- Quill Editor -->
@@ -64,6 +65,8 @@
     let currentChatId = "general_chat";
     let activeChats = new Set(); 
     let chatLogsCache = {};
+    let typingTimeout;
+    let typingAnimationInterval;
 
 
     // secure file sharing variables & e2e keys
@@ -161,8 +164,15 @@
                     updateActiveChats();
                 }
 
-               // Only display the message if it belongs to the currently active chat window
-                if (data.chat_id === currentChatId) {
+                // Show typing indicator in active chat
+                if (data.type === "typing") {
+                    if (data.chat_id === currentChatId) {
+                        showTypingIndicator(data.sender, data.isTyping);
+                    }
+                }
+
+                // Only display the message if it belongs to the currently active chat window
+                else if (data.chat_id === currentChatId) {
                     if (data.encrypted && !data.chat_id.startsWith("group_")) {
                         // DM message decryption branch
                         let participants = data.chat_id.split("_");
@@ -749,6 +759,52 @@
         }
     });
     
+    // Handler for Quill text-change events
+    quill.on('text-change', function(delta, oldDelta, source) {
+        console.log("Inside quill on")
+        if (source === 'user') {
+            sendTypingStatus(true);  // User started typing
+            console.log("typing status set true")
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                sendTypingStatus(false);  // User stopped typing after 3 seconds idle
+            }, 3000);
+        }
+    });
+
+    // Send typing status over WebSocket
+    function sendTypingStatus(isTyping) {
+        if (ws && ws.readyState === WebSocket.OPEN && currentChatId) {
+            ws.send(JSON.stringify({
+                type: "typing",
+                sender: username,
+                isTyping: isTyping,
+                chat_id: currentChatId
+            }));
+        }
+    }
+
+    // Show typing indicator in active chat
+    function showTypingIndicator(user, isTyping) {
+        const typingIndicator = document.getElementById("typing-indicator");
+
+        if (isTyping) {
+            let dots = "";
+            typingIndicator.innerText = `${user} is typing`;
+            typingIndicator.style.display = "block";
+            
+            clearInterval(typingAnimationInterval);  // Clear any previous intervals
+            typingAnimationInterval = setInterval(() => {
+                dots = dots.length < 3 ? dots + "." : "";
+                typingIndicator.innerText = `${user} is typing${dots}`;
+            }, 500); // update every 0.5 seconds
+
+        } else {
+            clearInterval(typingAnimationInterval);
+            typingIndicator.innerText = "";
+            typingIndicator.style.display = "none";
+        }
+    }
 
     //Handler for "Leave Room" button
     const leaveRoom = () => {

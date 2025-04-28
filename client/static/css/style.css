@@ -256,3 +256,12 @@ h3 {
     color: black;
     font-weight: bold;
 }
+
+#typing-indicator {
+    display:none; 
+    color: black;
+    font-weight: bold;
+    font-style: italic; 
+    margin: 5px 0px 0px 5px;
+    white-space: nowrap;
+}
