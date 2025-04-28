@@ -726,8 +726,6 @@ async def start_websocket_server():
     global stop_event
     stop_event = asyncio.Event()
 
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_ctx.load_cert_chain(SSL_CERT_PATH, SSL_KEY_PATH)
 
     # loop = asyncio.get_running_loop()
     # for sig in (signal.SIGINT, signal.SIGTERM):
@@ -737,13 +735,12 @@ async def start_websocket_server():
         async with websockets.serve(
             websocket_server, 
             "0.0.0.0", 
-            8765, 
-            ssl = ssl_ctx, 
+            8765,  
             ping_interval = HEARTBEAT_INTERVAL, 
             ping_timeout = HEARTBEAT_TIMEOUT,
             process_request=process_request,
         ):
-            proto = "wss" if SSL_CONTEXT else "ws"
+            proto = "ws"
             print(f"{proto.upper()}Secure WebSocket server started with (wss://0.0.0.0:8765)")
             await stop_event.wait()  # Waits for server shutdown signal
     except asyncio.CancelledError:
