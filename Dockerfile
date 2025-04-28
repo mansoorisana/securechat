@@ -23,7 +23,7 @@ COPY websocket.py ./
 COPY client/ ./client/
 
 # Flask and WebSocket  ports
-EXPOSE 5000 8765
+EXPOSE 5000 
 
 # starting main script for server
 CMD ["python", "websocket.py"]
