@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_file
 import asyncio, websockets, threading, os, time, sys, ssl, json, signal, base64
+from http import HTTPStatus
 from datetime import datetime
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
@@ -39,7 +40,12 @@ shutdown_initiated = False
 load_dotenv()
 
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder="client",      
+    static_folder="client/static",
+    static_url_path="/static"
+    )
 app.secret_key = os.getenv("SECRET_KEY", "fallback@secret!")
 
 ###################### START DATABASE ######################
@@ -700,7 +706,22 @@ async def shutdown():
     CONNECTED_CLIENTS.clear()  # Safely clear after closing all connections
     stop_event.set()
     
-   
+async def process_request(path, request):
+    # `request` may be a Headers-like or a full Request object
+    # so grab a mapping of headers in a safe way:
+    headers = getattr(request, "headers", request)
+    upgrade = headers.get("Upgrade") or headers.get("upgrade") or ""
+    if upgrade.lower() != "websocket":
+        return (
+            HTTPStatus.NOT_FOUND,
+            [
+                ("Content-Type", "text/plain"),
+                ("Connection", "close"),
+            ],
+            b"Not a WebSocket endpoint\n",
+        )
+    # returning None allows the handshake to proceed
+    return None
             
 async def start_websocket_server():
     global stop_event
@@ -715,12 +736,13 @@ async def start_websocket_server():
             websocket_server, 
             "0.0.0.0", 
             8765, 
-            ssl = SSL_CONTEXT, 
+            ssl = SSL_CONTEXT if USE_SELF_SIGNED_SSL else None, 
             ping_interval = HEARTBEAT_INTERVAL, 
             ping_timeout = HEARTBEAT_TIMEOUT,
+            process_request=process_request,
         ):
             proto = "wss" if SSL_CONTEXT else "ws"
-            print(f"{proto.upper}Secure WebSocket server started with (wss://0.0.0.0:8765)")
+            print(f"{proto.upper()}Secure WebSocket server started with (wss://0.0.0.0:8765)")
             await stop_event.wait()  # Waits for server shutdown signal
     except asyncio.CancelledError:
         print("\nWebSocket server shutting down cleanly...")

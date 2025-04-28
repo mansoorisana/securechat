@@ -145,7 +145,13 @@
 
     
     function connectWebSocket() {
-        ws = new WebSocket("wss://" + window.location.hostname + ":8765");
+        const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+        const host   = window.location.hostname;
+        const port   = 8765;
+        const url    = `${scheme}://${host}:${port}`;
+        
+        console.log("connecting to", url);
+        ws = new WebSocket(url);
 
         ws.onopen = () => {
             console.log("WebSocket Connection open from client. Sending username :",username)
