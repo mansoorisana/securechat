@@ -712,26 +712,22 @@ async def shutdown():
     CONNECTED_CLIENTS.clear()  # Safely clear after closing all connections
     stop_event.set()
     
-async def process_request(path, request):
-    # `request` may be a Headers-like or a full Request object
-    # so grab a mapping of headers in a safe way:
-    headers = getattr(request, "headers", request)
-    upgrade = headers.get("Upgrade") or headers.get("upgrade") or ""
-    if upgrade.lower() != "websocket":
+async def process_request(path, request_headers):
+  
+    if request_headers.get("Upgrade", "").lower() != "websocket":
         return (
-            HTTPStatus.NOT_FOUND,
-            [
-                ("Content-Type", "text/plain"),
-                ("Connection", "close"),
-            ],
-            b"Not a WebSocket endpoint\n",
+            HTTPStatus.OK,                  
+            [("Content-Type", "text/plain")],  
+            b"OK",                          
         )
-    # returning None allows the handshake to proceed
-    return None
+    return None  # proceed with WebSocket handshake
             
 async def start_websocket_server():
     global stop_event
     stop_event = asyncio.Event()
+
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_ctx.load_cert_chain(SSL_CERT_PATH, SSL_KEY_PATH)
 
     # loop = asyncio.get_running_loop()
     # for sig in (signal.SIGINT, signal.SIGTERM):
@@ -742,7 +738,7 @@ async def start_websocket_server():
             websocket_server, 
             "0.0.0.0", 
             8765, 
-            ssl = SSL_CONTEXT if USE_SELF_SIGNED_SSL else None, 
+            ssl = ssl_ctx, 
             ping_interval = HEARTBEAT_INTERVAL, 
             ping_timeout = HEARTBEAT_TIMEOUT,
             process_request=process_request,
