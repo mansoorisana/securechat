@@ -212,9 +212,9 @@
                 console.log("Received decryption key:", data.key);
                 await decryptFile(data.filename, data.file_data, data.key);
             }
-            // Process user list updates
-            else if (data.user_list) {
-                updateUserList(data.user_list);
+            // Process user list status updates
+            else if (data.type === "user_list_status_update") {
+                updateUserList(data.users);
             }
             // Process errors
             else if (data.error) {
@@ -455,13 +455,31 @@
 
 
 
-    //Displaying online connected clients available for chat
+    //Displaying connected clients available for chat with online/offline status
     function updateUserList(users) {
+
         let userListDiv = document.getElementById("user-list");
-        userListDiv.innerHTML = users
-            .filter(u => u !== username)
-            .map(u => `<label class="checkbox-label"><input type="checkbox" value="${u}"> ${u}</label><br>`)
-            .join("");
+        userListDiv.innerHTML = "";
+
+        users.forEach(userObj => {
+            if (userObj.username !== username) {
+                const label = document.createElement("label");
+                label.className = "checkbox-label";
+
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.value = userObj.username;
+                checkbox.disabled = (userObj.status !== "online");
+
+                const statusDot = document.createElement("span");
+                statusDot.className = "status-dot " + (userObj.status === "online" ? "online" : "offline");
+
+                label.appendChild(checkbox);
+                label.appendChild(statusDot);
+                label.appendChild(document.createTextNode(" " + userObj.username));
+                userListDiv.appendChild(label);
+            }
+        });
     }
 
     //Creating chat based on checklist items selected

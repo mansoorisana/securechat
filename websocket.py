@@ -16,6 +16,7 @@ from Crypto.Random import get_random_bytes
 
 
 CONNECTED_CLIENTS = {} # Active WebSocket connections
+CLIENTS_STATUS = {} # Online Offline Status
 HEARTBEAT_INTERVAL = 10  #seconds
 HEARTBEAT_TIMEOUT = 5  #seconds
 USER_MESSAGE_TIMESTAMPS = {} 
@@ -572,11 +573,11 @@ async def broadcast_message_data(message_data):
 
 ###################### START WEB SOCKET CONNECTION ######################
 
-# Notify all clients about the updated user list
+# Notify all clients about the updated user list with online/offline status
 async def notify_user_list():
-    users = list(CONNECTED_CLIENTS.keys())
+    users = [{"username": user, "status": CLIENTS_STATUS.get(user, "offline")} for user in CLIENTS_STATUS]
     for ws in CONNECTED_CLIENTS.values():
-        await ws.send(json.dumps({"user_list": users}))
+        await ws.send(json.dumps({"type": "user_list_status_update", "users": users}))
 
 
 #Handler for websocket connections & message listening
@@ -600,6 +601,7 @@ async def websocket_server(websocket, path=None):
         
         
         CONNECTED_CLIENTS[username] = websocket
+        CLIENTS_STATUS[username] = "online"
         await notify_user_list()
 
         # Deliver any undelivered messages
@@ -648,6 +650,7 @@ async def websocket_server(websocket, path=None):
         if username in CONNECTED_CLIENTS:
             print(f"{username} User diconnected")
             del CONNECTED_CLIENTS[username]
+            CLIENTS_STATUS[username] = "offline"
             await notify_user_list()
 
 
