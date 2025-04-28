@@ -425,6 +425,12 @@ def leave_room():
     session.pop("username", None) #Remove username from session
     return redirect(url_for("home"))
 
+
+@app.route("/healthz")
+def healthz():
+    #Health check for uptime monitoring.
+    
+    return jsonify({"status": "ok"}), 200
 ###################### END API ROUTES ######################
 
 ###################### START MESSAGE ROUTING ######################
