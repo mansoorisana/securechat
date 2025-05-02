@@ -345,6 +345,14 @@ async def heartbeat(ws: WebSocket):
     except:
         pass
 
+@app.get("/healthz")
+def healthz():
+    """
+    Health check for external monitors.
+    Returns HTTP 200 + JSON.
+    """
+    return {"status": "ok"}
+
 # ─── Typing Indicator, Broadcasts, Undelivered & Group Logic ────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
