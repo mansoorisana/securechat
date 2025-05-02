@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: securechat
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+      - key: SECRET_KEY
+      - key: UPLOAD_FOLDER
+    ports:
+      - 10000
