@@ -1,29 +1,23 @@
-# official slim Python image
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Build tools 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+  && rm -rf /var/lib/apt/lists/*
 
-# dependencies install 
-RUN apt-get update && \
-apt-get install -y --no-install-recommends build-essential && \
-rm -rf /var/lib/apt/lists/*
-
-# setting working directory inside container
 WORKDIR /app
 
-# copying dependencies
+# future mySQL stuff
+
+# Copy Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-#server-side code
-COPY websocket.py ./
+# Copy the rest of your project (client/, uploads/, websocket.py, etc.)
+COPY . .
 
-# copying client-side code
-COPY client/ ./client/
+# Expose the single port for both HTTP and WS
+EXPOSE 10000
 
-# Flask and WebSocket  ports
-EXPOSE 5000 8765
-
-# starting main script for server
-CMD ["python", "websocket.py"]
+# Launch via Uvicorn; your FastAPI app is in main.py
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
