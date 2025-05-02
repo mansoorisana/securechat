@@ -6,3 +6,4 @@ SQLAlchemy
 pymysql
 passlib[bcrypt]
 uvicorn[standard]
+itsdangerous
