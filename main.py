@@ -189,7 +189,7 @@ def home_post(
         db.add(user); db.commit(); db.close()
 
         request.session["username"] = username
-        return JSONResponse({"redirect": "/chat"}, status_code=201)
+        return JSONResponse({"message": "Signup successful! Redirecting to chat…" ,"redirect": "/chat"}, status_code=201)
 
     # Fallback 
     return JSONResponse({"message": "Unknown action"}, status_code=400)
