@@ -7,3 +7,5 @@ pymysql
 passlib[bcrypt]
 uvicorn[standard]
 itsdangerous
+jinja2
+python-multipart 
