@@ -362,26 +362,54 @@ async def websocket_endpoint(ws: WebSocket):
         init = json.loads(await ws.receive_text())
         user = init.get("username")
         # verify in DB
-        db = SessionLocal(); exists = db.query(User).filter_by(username=user).first() is not None; db.close()
+        db = SessionLocal()
+        exists = db.query(User).filter_by(username=user).first() is not None
+        db.close()
         if not exists:
             await ws.send_text(json.dumps({"error":"Unauthorized"}))
-            await ws.close(); return
+            await ws.close()
+            return
 
         # register
-        CONNECTED_CLIENTS[user] = ws; CLIENTS_STATUS[user] = "online"
-        # notify
+        CONNECTED_CLIENTS[user] = ws
+        CLIENTS_STATUS[user] = "online"
+        # notify current users
         await notify_user_list()
 
-        # send undelivered
+        # send any buffered messages
         for m in UNDISPATCHED_MESSAGES.pop(user, []):
             await ws.send_text(json.dumps(m))
 
-        # message loop
+
         while True:
             text = await ws.receive_text()
-            now = time.time()
 
-            # rate‐limit/mute
+            # 1. Parse out type
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                data = {"type": "message", "message": text}
+            typ = data.get("type", "message")
+
+            # 2. Typing indicator
+            if typ == "typing":
+                cid      = data.get("chat_id")
+                isTyping = data.get("isTyping")
+                if cid:
+                    targets = (GROUP_CHATS.get(cid) if cid.startswith("group_")
+                               else [u for u in CONNECTED_CLIENTS if u != user])
+                    for u in targets:
+                        if u in CONNECTED_CLIENTS:
+                            await CONNECTED_CLIENTS[u].send_text(json.dumps({
+                                "type":     "typing",
+                                "sender":   user,
+                                "isTyping": isTyping,
+                                "chat_id":  cid
+                            }))
+                continue
+
+            # 3. Rate-limit everything else
+            now = time.time()
             if await is_user_muted(user, now):
                 continue
             if await check_rate_limit(user, now):
@@ -389,56 +417,47 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
             USER_MESSAGE_TIMESTAMPS.setdefault(user, []).append(now)
 
-            # dispatch
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                data = {"type":"message","message": text}
-
-            typ = data.get("type")
+            # 4. Dispatch by type
             if typ == "file_upload":
                 await handle_file_upload(ws, user, data)
+
             elif typ == "file_download":
                 await handle_file_download(ws, user, data)
-            elif typ == "typing":
-                # broadcast typing to others
-                cid = data.get("chat_id"); isTyping = data.get("isTyping")
-                if cid:
-                    targets = (GROUP_CHATS.get(cid) if cid.startswith("group_")
-                               else [u for u in CONNECTED_CLIENTS if u != user])
-                    for u in targets:
-                        if u in CONNECTED_CLIENTS:
-                            await CONNECTED_CLIENTS[u].send_text(json.dumps({
-                                "type":"typing","sender":user,
-                                "isTyping":isTyping,"chat_id":cid
-                            }))
+
             else:
-                # chat message (encrypted or plain)
-                cid = data.get("chat_id","general_chat")
+                # chat message
+                cid = data.get("chat_id", "general_chat")
                 msg = data.get("message", text)
-                iv  = data.get("iv","No IV")
-                # log
+                iv  = data.get("iv", "No IV")
+
                 log_message(cid, user, msg, iv)
-                # choose recipients
+
                 if cid == "general_chat":
                     recipients = list(CONNECTED_CLIENTS.keys())
                 elif cid.startswith("group_"):
-                    recipients = GROUP_CHATS.get(cid,[])
+                    recipients = GROUP_CHATS.get(cid, [])
                 else:
                     recipients = cid.split("_")
-                # send or buffer
-                envelope = {"chat_id":cid,"sender":user,"message":msg,"timestamp":generate_timestamp()}
+
+                envelope = {
+                    "chat_id":   cid,
+                    "sender":    user,
+                    "message":   msg,
+                    "timestamp": generate_timestamp()
+                }
                 for u in recipients:
                     w = CONNECTED_CLIENTS.get(u)
                     if w:
                         await w.send_text(json.dumps(envelope))
                     else:
-                        UNDISPATCHED_MESSAGES.setdefault(u,[]).append(envelope)
+                        UNDISPATCHED_MESSAGES.setdefault(u, []).append(envelope)
 
     except WebSocketDisconnect:
+        # client disconnected
         pass
+
     finally:
-        # cleanup
+        # cleanup on disconnect
         CONNECTED_CLIENTS.pop(user, None)
         CLIENTS_STATUS[user] = "offline"
         await notify_user_list()
