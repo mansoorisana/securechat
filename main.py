@@ -189,7 +189,7 @@ def home_post(
         db.add(user); db.commit(); db.close()
 
         request.session["username"] = username
-        return JSONResponse({"message": "Signup successful! Redirecting to chat…" ,"redirect": "/chat"}, status_code=201)
+        return JSONResponse({"message": "Signup successful! You may now login" ,"redirect": "/chat"}, status_code=201)
 
     # Fallback 
     return JSONResponse({"message": "Unknown action"}, status_code=400)
@@ -357,11 +357,12 @@ def healthz():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    user = None
+
     try:
-        # initial handshake
+        # ─── Handshake ──────────────────────────────
         init = json.loads(await ws.receive_text())
         user = init.get("username")
-        # verify in DB
         db = SessionLocal()
         exists = db.query(User).filter_by(username=user).first() is not None
         db.close()
@@ -370,45 +371,51 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.close()
             return
 
-        # register
+        # ─── Register & flush undelivered ───────────
         CONNECTED_CLIENTS[user] = ws
-        CLIENTS_STATUS[user] = "online"
-        # notify current users
+        CLIENTS_STATUS[user]   = "online"
         await notify_user_list()
+        for msg in UNDISPATCHED_MESSAGES.pop(user, []):
+            await ws.send_text(json.dumps(msg))
 
-        # send any buffered messages
-        for m in UNDISPATCHED_MESSAGES.pop(user, []):
-            await ws.send_text(json.dumps(m))
-
-
+        # ─── Main loop ──────────────────────────────
         while True:
-            text = await ws.receive_text()
-
-            # 1. Parse out type
+            raw = await ws.receive_text()
+            # 1) Try parse JSON
             try:
-                data = json.loads(text)
+                data = json.loads(raw)
             except json.JSONDecodeError:
-                data = {"type": "message", "message": text}
+                # If it’s truly just a raw ciphertext string,
+                # wrap it but preserve it as ciphertext
+                data = {
+                    "type":    "message",
+                    "message": raw,
+                    # *** don’t lose the IV! ***
+                    "iv":      None
+                }
+
             typ = data.get("type", "message")
 
-            # 2. Typing indicator
+            # 2) Handle typing indicator immediately
             if typ == "typing":
                 cid      = data.get("chat_id")
                 isTyping = data.get("isTyping")
                 if cid:
-                    targets = (GROUP_CHATS.get(cid) if cid.startswith("group_")
+                    targets = (GROUP_CHATS.get(cid)
+                               if cid.startswith("group_")
                                else [u for u in CONNECTED_CLIENTS if u != user])
                     for u in targets:
-                        if u in CONNECTED_CLIENTS:
-                            await CONNECTED_CLIENTS[u].send_text(json.dumps({
+                        ws2 = CONNECTED_CLIENTS.get(u)
+                        if ws2:
+                            await ws2.send_text(json.dumps({
                                 "type":     "typing",
                                 "sender":   user,
                                 "isTyping": isTyping,
                                 "chat_id":  cid
                             }))
-                continue
+                continue  # **don’t rate‐limit typing events**
 
-            # 3. Rate-limit everything else
+            # 3) Rate-limit everything else
             now = time.time()
             if await is_user_muted(user, now):
                 continue
@@ -417,19 +424,19 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
             USER_MESSAGE_TIMESTAMPS.setdefault(user, []).append(now)
 
-            # 4. Dispatch by type
+            # 4) File ops
             if typ == "file_upload":
                 await handle_file_upload(ws, user, data)
-
             elif typ == "file_download":
                 await handle_file_download(ws, user, data)
 
+            # 5) Text message
             else:
-                # chat message
                 cid = data.get("chat_id", "general_chat")
-                msg = data.get("message", text)
+                msg = data["message"]
                 iv  = data.get("iv", "No IV")
 
+                # Log will now correctly record ciphertext + IV
                 log_message(cid, user, msg, iv)
 
                 if cid == "general_chat":
@@ -446,9 +453,9 @@ async def websocket_endpoint(ws: WebSocket):
                     "timestamp": generate_timestamp()
                 }
                 for u in recipients:
-                    w = CONNECTED_CLIENTS.get(u)
-                    if w:
-                        await w.send_text(json.dumps(envelope))
+                    ws2 = CONNECTED_CLIENTS.get(u)
+                    if ws2:
+                        await ws2.send_text(json.dumps(envelope))
                     else:
                         UNDISPATCHED_MESSAGES.setdefault(u, []).append(envelope)
 
@@ -457,10 +464,11 @@ async def websocket_endpoint(ws: WebSocket):
         pass
 
     finally:
-        # cleanup on disconnect
-        CONNECTED_CLIENTS.pop(user, None)
-        CLIENTS_STATUS[user] = "offline"
-        await notify_user_list()
+        # cleanup
+        if user:
+            CONNECTED_CLIENTS.pop(user, None)
+            CLIENTS_STATUS[user] = "offline"
+            await notify_user_list()
 
 # ─── Utility ──────────────────────────────────────────────────────────────────
 async def notify_user_list():
