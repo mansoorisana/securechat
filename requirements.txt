@@ -1,11 +1,21 @@
-websockets
-python-dotenv
-pycryptodome
+# core
 fastapi
+uvicorn[standard]
 SQLAlchemy
 pymysql
 passlib[bcrypt]
-uvicorn[standard]
-itsdangerous
+
+# crypto & WebSockets
+pycryptodome
+websockets
+
+# env & uploads
+python-dotenv
+python-multipart
+
+# templating & sessions
 jinja2
-python-multipart 
+itsdangerous
+
+# bcrypt backend
+bcrypt>=3.1.0
