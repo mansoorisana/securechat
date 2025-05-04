@@ -26,7 +26,7 @@ SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 ORACLE_USER = os.getenv("ORACLE_USER")
 ORACLE_PWD  = os.getenv("ORACLE_PWD")
-ORACLE_SVC  = os.getenv("ORACLE_SVC")
+ORACLE_DSN  = os.getenv("ORACLE_DSN")
 TNS = os.getenv("TNS_ADMIN", "/app/Wallet_securechatDB")
 
 # Ensure upload & logs & db dirs exist
@@ -34,8 +34,8 @@ os.environ["TNS_ADMIN"] = TNS
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-if not (ORACLE_USER and ORACLE_PWD and ORACLE_SVC):
-    raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_SVC")
+if not (ORACLE_USER and ORACLE_PWD and ORACLE_DSN):
+    raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_DSN")
 # ─── Database Setup ────────────────────────────────────────────────────────────
 PWD_Q = quote_plus(ORACLE_PWD)
 
@@ -44,8 +44,7 @@ engine = create_engine(
     connect_args={
     "user": ORACLE_USER,
     "password": ORACLE_PWD,
-    "dsn": ORACLE_SVC, 
-    "wallet_location": TNS,
+    "dsn": ORACLE_DSN, 
     "ssl_server_dn_match": True,
     },
     pool_size=10,
