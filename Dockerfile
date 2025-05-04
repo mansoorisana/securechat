@@ -4,11 +4,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 #importats b64 db wallet blob
-COPY db_wallet.tar.gz.b64 /tmp/db_wallet.tar.gz.b64
+COPY slim_wallet.tar.gz.b64 /tmp/slim_wallet.tar.gz.b64
 
 #decodes 
 RUN mkdir -p /app/Wallet_securechatDB && \
-    base64 -d /tmp/db_wallet.tar.gz.b64 \
+    base64 -d /tmp/slim_wallet.tar.gz.b64  \
       | tar -xz --strip-components=1 -C /app/Wallet_securechatDB
 
 # env declaration
