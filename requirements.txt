@@ -17,5 +17,6 @@ python-multipart
 jinja2
 itsdangerous
 
-# bcrypt backend
+# bcrypt & oracle DB backend
 bcrypt<4
+oracledb>=3.1.0

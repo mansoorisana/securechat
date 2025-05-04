@@ -3,7 +3,7 @@
 Group23_cert.pem
 Group23_key.pem
 .env
-users.db
+instance/users.db
 
 # Ignore Python virtual environments
 venv/
@@ -22,3 +22,5 @@ logs/
 #ignore user uploads
 uploads/
 
+# Free Oracle DB wallet
+Wallet_securechatDB/

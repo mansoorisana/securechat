@@ -1,15 +1,15 @@
-import os, json, base64, time, asyncio
-from datetime import datetime
+import os, json, base64, time, asyncio, oracledb
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response)
+from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response, Depends)
 
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from sqlalchemy import ( create_engine, Column, Integer, String, Text, inspect)
+from sqlalchemy import ( create_engine, Column, Integer, String, Text, inspect, DateTime, text)
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from passlib.context import CryptContext
@@ -21,30 +21,54 @@ from Crypto.Random import get_random_bytes
 # ─── Configuration & Environment ──────────────────────────────────────────────
 load_dotenv()
 
-DATABASE_URL  = os.getenv("DATABASE_URL", "sqlite:///users.db")
 SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
-SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # if using MySQL TLS
+ORACLE_USER = os.getenv("ORACLE_USER")
+ORACLE_PWD  = os.getenv("ORACLE_PWD")
+ORACLE_SVC  = os.getenv("ORACLE_SVC")
+TNS = os.getenv("TNS_ADMIN", "Wallet_securechatDB")
 
-# Ensure upload & logs dirs exist
+# Ensure upload & logs & db dirs exist
+os.environ["TNS_ADMIN"] = TNS
+oracledb.init_oracle_client(config_dir=TNS)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
+if not (ORACLE_USER and ORACLE_PWD and ORACLE_SVC):
+    raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_SVC")
 # ─── Database Setup ────────────────────────────────────────────────────────────
-connect_args = {}
-if DATABASE_URL.startswith("mysql") and SSL_CA_PATH:
-    connect_args = {"ssl": {"ca": SSL_CA_PATH}}
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
-SessionLocal = sessionmaker(bind=engine)
+DATABASE_URL = (f"oracle+cx_oracle://{ORACLE_USER}:{ORACLE_PWD}@{ORACLE_SVC}")
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=10,         
+    max_overflow=20,      
+    pool_timeout=30,      
+    pool_recycle=1800,    
+)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
-
 class User(Base):
-    __tablename__ = "user"
+    __tablename__ = "users"
     id           = Column(Integer, primary_key=True, index=True)
     username     = Column(String(50), unique=True, nullable=False)
     password_hash= Column(String(128), nullable=False)
     public_key   = Column(Text, nullable=True)
+
+class Message(Base):
+    __tablename__ = "messages"
+    id         = Column(Integer, primary_key=True, index=True)
+    chat_id    = Column(String(255), index=True, nullable=False)
+    sender     = Column(String(50), nullable=False)
+    ciphertext = Column(Text, nullable=False)
+    iv         = Column(String(32))
+    timestamp  = Column(DateTime, default=datetime.now(timezone.utc))
+
+class Log(Base):
+    __tablename__ = "logs"
+    id        = Column(Integer, primary_key=True, index=True)
+    chat_id   = Column(String(255), index=True)
+    entry     = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now(timezone.utc))
 
 # Create tables if missing
 if not inspect(engine).has_table("user"):
@@ -90,9 +114,17 @@ FAILED_LOGINS      = {}        # ip -> [timestamps]
 BRUTE_FORCE_LIMIT  = 5         # attempts
 BRUTE_FORCE_WINDOW = 5 * 60    # 5 minutes in seconds
 
-# ─── Logging Helpers ──────────────────────────────────────────────────────────
+# ─── Logging & DB Helpers ──────────────────────────────────────────────────────────
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def generate_timestamp() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 def generate_session_filename(chat_id: str) -> str:
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -115,6 +147,7 @@ def log_message(chat_id: str, sender: str, message: str, iv: str):
     with open(path, "a", encoding="utf-8") as f:
         f.write(line)
 
+    
 # ─── Encryption Helpers ────────────────────────────────────────────────────────
 def encrypt_file(input_path: str, output_path: str, key: bytes):
     cipher = AES.new(key, AES.MODE_GCM)
@@ -131,6 +164,15 @@ def decrypt_file(input_path: str, output_path: str, key: bytes):
     open(output_path, "wb").write(pt)
 
 # ─── HTTP ROUTES ───────────────────────────────────────────────────────────────
+
+@app.get("/users/{user_id}")
+def read_user(user_id: int, db=Depends(get_db)):
+    # ✅ Use text() + bind params to avoid SQL injection
+    result = db.execute(text("SELECT id, username FROM users WHERE id = :uid"), {"uid": user_id})
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"id": row.id, "username": row.username}
 
 @app.get("/")
 def root():
@@ -277,6 +319,9 @@ def download_file(filename: str, key: str):
     decrypt_file(enc, dec, bytes.fromhex(key))
     return FileResponse(dec, filename=filename)
 
+
+
+
 # ─── Rate-limit & Muting Helpers ────────────────────────────────────────────────
 async def is_user_muted(user: str, now: float) -> bool:
     expiry = MUTED_USERS.get(user)
@@ -345,13 +390,6 @@ async def heartbeat(ws: WebSocket):
     except:
         pass
 
-@app.get("/healthz")
-def healthz():
-    """
-    Health check for external monitors.
-    Returns HTTP 200 + JSON.
-    """
-    return {"status": "ok"}
 
 # ─── Typing Indicator, Broadcasts, Undelivered & Group Logic ────────────────
 @app.websocket("/ws")
@@ -381,16 +419,12 @@ async def websocket_endpoint(ws: WebSocket):
         # ─── Main loop ──────────────────────────────
         while True:
             raw = await ws.receive_text()
-            # 1) Try parse JSON
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                # If it’s truly just a raw ciphertext string,
-                # wrap it but preserve it as ciphertext
                 data = {
                     "type":    "message",
                     "message": raw,
-                    # *** don’t lose the IV! ***
                     "iv":      None
                 }
 
@@ -413,9 +447,9 @@ async def websocket_endpoint(ws: WebSocket):
                                 "isTyping": isTyping,
                                 "chat_id":  cid
                             }))
-                continue  # **don’t rate‐limit typing events**
+                continue  # 
 
-            # 3) Rate-limit everything else
+            # 3) Rate-limit
             now = time.time()
             if await is_user_muted(user, now):
                 continue
@@ -478,7 +512,15 @@ async def notify_user_list():
     for ws in CONNECTED_CLIENTS.values():
         await ws.send_text(msg)
 
-# HEAD request handlers 
+
+@app.get("/healthz")
+def healthz():
+    """
+    Health check for external monitors.
+    Returns HTTP 200 + JSON.
+    """
+    return {"status": "ok"}
+
 @app.head("/")               
 def head_root() -> Response:
     return Response(status_code=200)
