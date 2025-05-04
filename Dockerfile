@@ -8,7 +8,8 @@ COPY db_wallet.tar.gz.b64 /tmp/db_wallet.tar.gz.b64
 
 #decodes 
 RUN mkdir -p /app/Wallet_securechatDB && \
-    base64 -d /tmp/db_wallet.tar.gz.b64 | tar -xz -C /app/Wallet_securechatDB
+    base64 -d /tmp/db_wallet.tar.gz.b64 \
+      | tar -xz --strip-components=1 -C /app/Wallet_securechatDB
 
 # env declaration
 ENV TNS_ADMIN=/app/Wallet_securechatDB
