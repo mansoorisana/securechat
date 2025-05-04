@@ -10,10 +10,10 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# gets db env path 
+# env declaration
 ENV TNS_ADMIN=/app/Wallet_securechatDB
 
-# Install Python deps
+# Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -22,12 +22,12 @@ COPY . .
 
 EXPOSE 10000
 
-# gets oracle db 
+# gets path to db 
 ENTRYPOINT [ "sh", "-c", "\
     mkdir -p \"$TNS_ADMIN\" && \
     echo \"$WALLET_B64\" | base64 -d | tar -xz -C \"$TNS_ADMIN\" && \
     exec \"$@\"\
 ", "--" ]
 
-# default run command
+# Default command
 CMD ["uvicorn", "websocket:app", "--host", "0.0.0.0", "--port", "10000"]
