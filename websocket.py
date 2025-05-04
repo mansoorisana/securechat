@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from passlib.context import CryptContext
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
+from urllib.parse import quote_plus
 
 
 
@@ -36,6 +37,8 @@ os.makedirs("logs", exist_ok=True)
 if not (ORACLE_USER and ORACLE_PWD and ORACLE_SVC):
     raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_SVC")
 # ─── Database Setup ────────────────────────────────────────────────────────────
+PWD_Q = quote_plus(ORACLE_PWD)
+
 engine = create_engine(
     f"oracle+oracledb://",
     connect_args={
@@ -43,14 +46,17 @@ engine = create_engine(
     "password": ORACLE_PWD,
     "dsn": ORACLE_SVC, 
     "wallet_location": TNS,
+    "ssl_server_dn_match": True,
     },
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
     pool_recycle=1800,
 )
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
 class User(Base):
     __tablename__ = "users"
     id           = Column(Integer, primary_key=True, index=True)
