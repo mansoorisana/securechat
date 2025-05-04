@@ -5,10 +5,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
   && rm -rf /var/lib/apt/lists/*
 
+# ecnrypted Oracle DB Wallet 
+RUN mkdir -p /app/Wallet_securechatDB \
+&& echo "$WALLET_B64"        \
+     | base64 -d            \
+     | tar -xz -C /app/Wallet_securechatDB
+
 WORKDIR /app
 
-# copying oracleDB wallet 
-COPY Wallet_securechatDB /app/Wallet_securechatDB
 
 # Copy Python deps
 COPY requirements.txt .
