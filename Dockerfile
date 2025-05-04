@@ -9,7 +9,6 @@ WORKDIR /app
 
 # copying oracleDB wallet 
 COPY Wallet_securechatDB /app/Wallet_securechatDB
-ENV TNS_ADMIN=/app/Wallet_securechatDB
 
 # Copy Python deps
 COPY requirements.txt .
