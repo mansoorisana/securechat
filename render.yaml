@@ -9,3 +9,6 @@ services:
       - key: UPLOAD_FOLDER
     ports:
       - 10000
+    healthCheckPath: /healthz
+    healthCheckIntervalSeconds: 15
+    healthCheckTimeoutSeconds: 5
