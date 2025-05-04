@@ -37,9 +37,13 @@ if not (ORACLE_USER and ORACLE_PWD and ORACLE_SVC):
     raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_SVC")
 # ─── Database Setup ────────────────────────────────────────────────────────────
 engine = create_engine(
-    f"oracle+oracledb://{ORACLE_USER}:{ORACLE_PWD}@{ORACLE_SVC}",
+    f"oracle+oracledb://",
     connect_args={
-    "wallet_location": TNS },
+    "user": ORACLE_USER,
+    "password": ORACLE_PWD,
+    "dsn": ORACLE_SVC, 
+    "wallet_location": TNS,
+    },
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
