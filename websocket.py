@@ -26,24 +26,24 @@ UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 ORACLE_USER = os.getenv("ORACLE_USER")
 ORACLE_PWD  = os.getenv("ORACLE_PWD")
 ORACLE_SVC  = os.getenv("ORACLE_SVC")
-TNS = os.getenv("TNS_ADMIN", "Wallet_securechatDB")
+TNS = os.getenv("TNS_ADMIN", "/app/Wallet_securechatDB")
 
 # Ensure upload & logs & db dirs exist
 os.environ["TNS_ADMIN"] = TNS
-oracledb.init_oracle_client(config_dir=TNS)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
 if not (ORACLE_USER and ORACLE_PWD and ORACLE_SVC):
     raise RuntimeError("Missing one of ORACLE_USER, ORACLE_PWD, ORACLE_SVC")
 # ─── Database Setup ────────────────────────────────────────────────────────────
-DATABASE_URL = (f"oracle+cx_oracle://{ORACLE_USER}:{ORACLE_PWD}@{ORACLE_SVC}")
 engine = create_engine(
-    DATABASE_URL,
-    pool_size=10,         
-    max_overflow=20,      
-    pool_timeout=30,      
-    pool_recycle=1800,    
+    f"oracle+oracledb://{ORACLE_USER}:{ORACLE_PWD}@{ORACLE_SVC}",
+    connect_args={
+    "wallet_location": TNS },
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=1800,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
@@ -81,7 +81,7 @@ def hash_password(pw: str) -> str:
 def verify_password(pw: str, h: str) -> bool:
     return pwd_context.verify(pw, h)
 
-# ─── FastAPI + SlowAPI Setup ──────────────────────────────────────────────────
+# ─── FastAPI Setup ──────────────────────────────────────────────────
 app = FastAPI()
 
 
@@ -121,7 +121,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
 
 def generate_timestamp() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -167,7 +166,7 @@ def decrypt_file(input_path: str, output_path: str, key: bytes):
 
 @app.get("/users/{user_id}")
 def read_user(user_id: int, db=Depends(get_db)):
-    # ✅ Use text() + bind params to avoid SQL injection
+    # using text() + bind params to avoid SQL injection
     result = db.execute(text("SELECT id, username FROM users WHERE id = :uid"), {"uid": user_id})
     row = result.fetchone()
     if not row:
