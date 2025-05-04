@@ -2,7 +2,7 @@ import os, json, base64, time, asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
-from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException)
+from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response)
 
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -477,3 +477,12 @@ async def notify_user_list():
     msg = json.dumps({"type":"user_list_status_update","users":lst})
     for ws in CONNECTED_CLIENTS.values():
         await ws.send_text(msg)
+
+# HEAD request handlers 
+@app.head("/")               
+def head_root() -> Response:
+    return Response(status_code=200)
+
+@app.head("/healthz")        
+def head_healthz() -> Response:
+    return Response(status_code=200)
