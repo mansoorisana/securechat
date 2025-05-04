@@ -1,8 +1,21 @@
-flask
-flask-sqlalchemy
-flask-bcrypt
-flask-limiter
-websockets
-python-dotenv
+# core
+fastapi
+uvicorn[standard]
+SQLAlchemy
+pymysql
+passlib[bcrypt]
+
+# crypto & WebSockets
 pycryptodome
-pymysql 
+websockets
+
+# env & uploads
+python-dotenv
+python-multipart
+
+# templating & sessions
+jinja2
+itsdangerous
+
+# bcrypt backend
+bcrypt>=3.1.0
