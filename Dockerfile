@@ -1,17 +1,16 @@
 FROM python:3.11-slim
 
-# Oracle client deps
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      libaio1 \
-      unzip \
-      build-essential && \
-    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # env declaration
 ENV TNS_ADMIN=/app/Wallet_securechatDB
+
+# Oracle client deps
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 # Python deps
 COPY requirements.txt .
