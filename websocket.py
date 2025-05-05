@@ -58,14 +58,14 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-    id           = Column(Integer, Identity(start=1), primary_key=True)
+    id           = Column(Integer, Identity(start=1, cycle=False), primary_key=True)
     username     = Column(String(50), unique=True, index=True, nullable=False)
     password_hash= Column(String(128), nullable=False)
     public_key   = Column(Text, nullable=True)
 
 class Message(Base):
     __tablename__ = "messages"
-    id         = Column(Integer, Identity(start=1), primary_key=True)
+    id         = Column(Integer, Identity(start=1, cycle=False), primary_key=True)
     chat_id    = Column(String(255), index=True, nullable=False)
     sender     = Column(String(50), nullable=False)
     ciphertext = Column(Text, nullable=False)
@@ -74,13 +74,13 @@ class Message(Base):
 
 class Log(Base):
     __tablename__ = "logs"
-    id        = Column(Integer, Identity(start=1), primary_key=True)
+    id        = Column(Integer, Identity(start=1, cycle=False), primary_key=True)
     chat_id   = Column(String(255), index=True)
     entry     = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.now(timezone.utc))
 
 # Creates any thing else missing
-    Base.metadata.create_all(engine)
+Base.metadata.create_all(engine)
 
 # ─── Password Utilities ────────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
