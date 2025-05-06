@@ -172,6 +172,19 @@
                     }
                 }
 
+                // Process file upload responses
+                else if (data.type === "file_upload_response") {
+                    if (data.chat_id !== currentChatId) 
+                        return;  //Ignore files from other chats
+
+                    console.log("File uploaded successfully:", data.filename);
+                    if (!availableFiles.includes(data.filename)) {
+                        availableFiles.push(data.filename);
+                        updateFileDropdown();
+                    }
+                    showMessage(data.timestamp, data.sender, "Uploaded file: " + data.filename);
+                }
+
                 // Only display the message if it belongs to the currently active chat window
                 else if (data.chat_id === currentChatId) {
                     if (data.encrypted && !data.chat_id.startsWith("group_")) {
@@ -208,21 +221,11 @@
                     }
                 }
             }
-            // Process file upload responses
-            else if (data.type === "file_upload_response") {
-                console.log("File uploaded successfully:", data.filename);
-                if (!availableFiles.includes(data.filename)) {
-                    availableFiles.push(data.filename);
-                    updateFileDropdown();
-                }
-                showMessage(data.timestamp, data.sender, "Uploaded file: " + data.filename);
-            }
             // Process file download responses
             else if (data.type === "file_download_response") {
                 console.log("File downloaded. Decrypting...");
                 console.log("Received base64 iv:", data.iv);
                 await decryptFile(data.filename, data.file_data, data.iv);
-
             }
             // Process user list status updates
             else if (data.type === "user_list_status_update") {
@@ -405,7 +408,8 @@
             filename: file.name,
             file_data: base64File,
             iv: ivBase64,
-            username: username
+            username: username,
+            chat_id: currentChatId
         }));
 
         console.log("File sent for upload:", file.name);
@@ -431,7 +435,7 @@
         const fileSelect = document.getElementById("file-select");
         const selectedFile = fileSelect.value;
         if (selectedFile) {
-            ws.send(JSON.stringify({ type: "file_download", filename: selectedFile, username: username }));
+            ws.send(JSON.stringify({ type: "file_download", filename: selectedFile, username: username, chat_id: currentChatId }));
             console.log("Download request sent for:", selectedFile);
         }
         closeModal();
@@ -544,6 +548,25 @@
         let data = await response.json();
         console.log(`Chat logs fetched for ${chatId}:`, data.chat_logs);
         
+        // if (data.files) {
+        //     availableFiles = data.files || [];
+        //     updateFileDropdown();
+        // }
+        
+        if (Array.isArray(data.files)) {
+            availableFiles = data.files;
+
+            if (availableFiles.length > 0) {
+                updateFileDropdown();
+            } else {
+                availableFiles = [];  // Reset explicitly
+                closeModal();
+            }
+        } else {
+            availableFiles = [];  // Reset in case data.files is missing or not an array
+            closeModal();
+        }
+
         if (data.chat_logs) {
             //each log line in the persistent log to be in this format:
             // "Sender: logged_message - timestamp"

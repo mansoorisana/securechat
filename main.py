@@ -72,7 +72,7 @@ CONNECTED_CLIENTS     = {}  # username -> WebSocket
 CLIENTS_STATUS       = {}  # username -> "online"/"offline"
 UNDISPATCHED_MESSAGES= {}  # username -> [message_dict,...]
 GROUP_CHATS          = {}  # chat_id -> [user1,user2...]
-USER_FILE_KEYS       = {}  # filename -> hex(key)
+CHAT_FILES = {}            # chat_id -> list of { filename, file_data, iv, sender }
 LOG_FILE_TRACKER     = {}  # chat_id -> log_filepath
 USER_MESSAGE_TIMESTAMPS = {}  # username -> [timestamps]
 MUTED_USERS          = {}  # username -> unmute_timestamp
@@ -190,10 +190,19 @@ def chat_page(request: Request):
 @app.get("/chat/{chat_id}")
 def get_chat_history(chat_id: str):
     path = LOG_FILE_TRACKER.get(chat_id)
+    lines = []
     if path and os.path.exists(path):
-        lines = open(path, "r", encoding="utf-8").read().splitlines()
-        return {"chat_logs": lines}
-    return {"chat_logs": []}
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+    # Get file list for this chat, return filenames only
+    chat_files = CHAT_FILES.get(chat_id, [])
+    file_list = [f["filename"] for f in chat_files]
+
+    return {
+        "chat_logs": lines,
+        "files": file_list
+    }
 
 @app.post("/create_group")
 def create_group(data: dict):
@@ -286,39 +295,75 @@ async def warn_and_mute(user: str, now: float):
 # ─── File Upload/Download Over WebSocket ──────────────────────────────────────
 async def handle_file_upload(ws: WebSocket, user: str, data: dict):
     fn = data.get("filename")
+    chat_id = data.get("chat_id")
+    if not chat_id:
+        return
+    
     raw= base64.b64decode(data.get("file_data",""))
     if not fn or not raw:
         await ws.send_text(json.dumps({"error":"Invalid file data"}))
         return
     path= os.path.join(UPLOAD_FOLDER, fn+".enc")
     open(path,"wb").write(raw)
-    USER_FILE_KEYS[fn] = data.get("iv");
+
+    file_record = {
+        "filename": fn,
+        # "file_data": data["file_data"],
+        "iv": data["iv"],
+        "sender": data["username"]
+    }
+
+    # USER_FILE_KEYS[fn] = data.get("iv");
+
+    if chat_id not in CHAT_FILES:
+        CHAT_FILES[chat_id] = []
+    CHAT_FILES[chat_id].append(file_record)
+
     ts = generate_timestamp()
-    # broadcast
-    for c in CONNECTED_CLIENTS.values():
-        await c.send_text(json.dumps({
-            "type":"file_upload_response",
-            "filename": fn,
-            # "key": key.hex(),
-            "sender": user,
-            "timestamp": ts
-        }))
+
+    targets = get_chat_recipients(chat_id)
+
+    for u in targets:
+        ws2 = CONNECTED_CLIENTS.get(u)
+        if ws2:
+            await ws2.send_text(json.dumps({
+                "type":"file_upload_response",
+                "filename": fn,
+                # "key": key.hex(),
+                "sender": user,
+                "timestamp": ts,
+                "chat_id": chat_id
+            }))
 
 async def handle_file_download(ws: WebSocket, user: str, data: dict):
     fn  = data.get("filename")
-    iv_base64 = USER_FILE_KEYS.get(fn)
+    chat_id = data.get("chat_id")
+    username = data["username"]
+
+    if chat_id not in CHAT_FILES:
+        return
+
+    targets = get_chat_recipients(chat_id)
+
+    if username not in targets:
+        await ws.send_json({"type": "error", "message": "Unauthorized access"})
+        return
+    
+    # iv_base64 = USER_FILE_KEYS.get(fn)
     enc = os.path.join(UPLOAD_FOLDER, fn+".enc")
-    if not (fn and iv_base64 and os.path.exists(enc)):
+    if not (fn and os.path.exists(enc)):
         await ws.send_text(json.dumps({"error":"File/download missing"}))
         return
     raw = base64.b64encode(open(enc,"rb").read()).decode()
-    await ws.send_text(json.dumps({
-        "type":"file_download_response",
-        "filename":fn,
-        "file_data": raw,
-        "iv": iv_base64,
-        "sender": user
-    }))
+    file_entry = next((f for f in CHAT_FILES[chat_id] if f["filename"] == fn), None)
+    
+    if file_entry:
+        await ws.send_text(json.dumps({
+            "type":"file_download_response",
+            "filename":fn,
+            "file_data": raw,
+            "iv": file_entry["iv"]
+        }))
 
 async def heartbeat(ws: WebSocket):
     try:
@@ -384,15 +429,17 @@ async def websocket_endpoint(ws: WebSocket):
                 cid      = data.get("chat_id")
                 isTyping = data.get("isTyping")
                 if cid:
-                    # Determine targets based on chat type
-                    if cid.startswith("group_") and cid in GROUP_CHATS:
-                        targets = GROUP_CHATS[cid]
-                    elif cid == "general_chat":
-                        targets = list(CONNECTED_CLIENTS.keys())
-                    else:
-                        # Private chat: extract recipient from chat ID
-                        recipient = cid.replace(user + "_", "").replace("_" + user, "")
-                        targets = [recipient]
+                    # # Determine targets based on chat type
+                    # if cid.startswith("group_") and cid in GROUP_CHATS:
+                    #     targets = GROUP_CHATS[cid]
+                    # elif cid == "general_chat":
+                    #     targets = list(CONNECTED_CLIENTS.keys())
+                    # else:
+                    #     # Private chat: extract recipient from chat ID
+                    #     recipient = cid.replace(user + "_", "").replace("_" + user, "")
+                    #     targets = [recipient]
+
+                    targets = get_chat_recipients(cid)
 
                     for u in targets:
                         if u != user:
@@ -430,12 +477,14 @@ async def websocket_endpoint(ws: WebSocket):
                 # Log will now correctly record ciphertext + IV
                 log_message(cid, user, msg, iv)
 
-                if cid == "general_chat":
-                    recipients = list(CONNECTED_CLIENTS.keys())
-                elif cid.startswith("group_"):
-                    recipients = GROUP_CHATS.get(cid, [])
-                else:
-                    recipients = cid.split("_")
+                # if cid == "general_chat":
+                #     recipients = list(CONNECTED_CLIENTS.keys())
+                # elif cid.startswith("group_"):
+                #     recipients = GROUP_CHATS.get(cid, [])
+                # else:
+                #     recipients = cid.split("_")
+
+                recipients = get_chat_recipients(cid)
 
                 envelope = {
                     "chat_id":   cid,
@@ -468,6 +517,19 @@ async def notify_user_list():
     msg = json.dumps({"type":"user_list_status_update","users":lst})
     for ws in CONNECTED_CLIENTS.values():
         await ws.send_text(msg)
+
+
+def get_chat_recipients(chat_id):
+    # Returns a list of usernames based on the chat type
+    if chat_id.startswith("group_") and chat_id in GROUP_CHATS:
+        targets = GROUP_CHATS[chat_id]
+    elif chat_id == "general_chat":
+        targets = list(CONNECTED_CLIENTS.keys())
+    else:
+        targets = chat_id .split("_")
+
+    return targets
+
 
 # HEAD request handlers 
 @app.head("/")               
