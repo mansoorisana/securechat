@@ -384,18 +384,26 @@ async def websocket_endpoint(ws: WebSocket):
                 cid      = data.get("chat_id")
                 isTyping = data.get("isTyping")
                 if cid:
-                    targets = (GROUP_CHATS.get(cid)
-                               if cid.startswith("group_")
-                               else [u for u in CONNECTED_CLIENTS if u != user])
+                    # Determine targets based on chat type
+                    if cid.startswith("group_") and cid in GROUP_CHATS:
+                        targets = GROUP_CHATS[cid]
+                    elif cid == "general_chat":
+                        targets = list(CONNECTED_CLIENTS.keys())
+                    else:
+                        # Private chat: extract recipient from chat ID
+                        recipient = cid.replace(user + "_", "").replace("_" + user, "")
+                        targets = [recipient]
+
                     for u in targets:
-                        ws2 = CONNECTED_CLIENTS.get(u)
-                        if ws2:
-                            await ws2.send_text(json.dumps({
-                                "type":     "typing",
-                                "sender":   user,
-                                "isTyping": isTyping,
-                                "chat_id":  cid
-                            }))
+                        if u != user:
+                            ws2 = CONNECTED_CLIENTS.get(u)
+                            if ws2:
+                                await ws2.send_text(json.dumps({
+                                    "type":     "typing",
+                                    "sender":   user,
+                                    "isTyping": isTyping,
+                                    "chat_id":  cid
+                                }))
                 continue  # **don’t rate‐limit typing events**
 
             # 3) Rate-limit everything else
