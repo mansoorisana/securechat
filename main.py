@@ -1,4 +1,4 @@
-import os, json, base64, time, asyncio
+import os, json, base64, time, asyncio, httpx
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -25,6 +25,7 @@ DATABASE_URL  = os.getenv("DATABASE_URL", "sqlite:///users.db")
 SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # if using MySQL TLS
+VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY") # VirusTotal API key for malware scan
 
 # Ensure upload & logs dirs exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -246,6 +247,40 @@ def get_aes_key():
     if AES_KEY is None:
         AES_KEY = get_random_bytes(32)
     return {"aes_key": base64.b64encode(AES_KEY).decode()}
+
+#VirusTotal scan
+@app.post("/scan")
+async def scan_file(file: UploadFile = File(...)):
+    if not VIRUSTOTAL_API_KEY:
+        raise HTTPException(status_code=500, detail="VirusTotal API key not configured")
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Upload file to VirusTotal & send analysis id to client
+        files = {'file': (file.filename, await file.read())}
+        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+        vt_response = await client.post("https://www.virustotal.com/api/v3/files", headers=headers, files=files)
+
+        if vt_response.status_code != 200:
+            raise HTTPException(status_code=vt_response.status_code, detail=vt_response.text)
+
+        vt_data = vt_response.json()
+        analysis_id = vt_data["data"]["id"]
+        return {"status": "submitted", "analysis_id": analysis_id}
+
+@app.get("/scan-result/{analysis_id}")
+async def get_scan_result(analysis_id: str):
+    headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    result = response.json()
+    return {
+        "status": result["data"]["attributes"]["status"],
+        "stats": result["data"]["attributes"].get("stats", {})
+    }
 
 # @app.post("/upload")
 # def upload_file(

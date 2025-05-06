@@ -4,6 +4,7 @@ uvicorn[standard]
 SQLAlchemy
 pymysql
 passlib[bcrypt]
+httpx
 
 # crypto & WebSockets
 pycryptodome
