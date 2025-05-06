@@ -115,21 +115,6 @@ def log_message(chat_id: str, sender: str, message: str, iv: str):
     with open(path, "a", encoding="utf-8") as f:
         f.write(line)
 
-# ─── Encryption Helpers ────────────────────────────────────────────────────────
-def encrypt_file(input_path: str, output_path: str, key: bytes):
-    cipher = AES.new(key, AES.MODE_GCM)
-    nonce = cipher.nonce
-    plaintext = open(input_path, "rb").read()
-    ct, tag = cipher.encrypt_and_digest(plaintext)
-    open(output_path, "wb").write(nonce + tag + ct)
-
-def decrypt_file(input_path: str, output_path: str, key: bytes):
-    data = open(input_path, "rb").read()
-    nonce, tag, ct = data[:16], data[16:32], data[32:]
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    pt = cipher.decrypt_and_verify(ct, tag)
-    open(output_path, "wb").write(pt)
-
 # ─── HTTP ROUTES ───────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -253,29 +238,29 @@ def get_aes_key():
         AES_KEY = get_random_bytes(32)
     return {"aes_key": base64.b64encode(AES_KEY).decode()}
 
-@app.post("/upload")
-def upload_file(
-    file: UploadFile = File(...),
-    username: str     = Form(None)
-):
-    path = os.path.join(UPLOAD_FOLDER, file.filename)
-    open(path, "wb").write(file.file.read())
-    enc_path = path + ".enc"
-    key = get_random_bytes(32)
-    encrypt_file(path, enc_path, key)
-    os.remove(path)
-    if username:
-        USER_FILE_KEYS[file.filename] = key.hex()
-    return {"filename": file.filename, "key": key.hex()}
+# @app.post("/upload")
+# def upload_file(
+#     file: UploadFile = File(...),
+#     username: str     = Form(None)
+# ):
+#     path = os.path.join(UPLOAD_FOLDER, file.filename)
+#     open(path, "wb").write(file.file.read())
+#     enc_path = path + ".enc"
+#     key = get_random_bytes(32)
+#     encrypt_file(path, enc_path, key)
+#     os.remove(path)
+#     if username:
+#         USER_FILE_KEYS[file.filename] = key.hex()
+#     return {"filename": file.filename, "key": key.hex()}
 
-@app.get("/download/{filename}")
-def download_file(filename: str, key: str):
-    enc = os.path.join(UPLOAD_FOLDER, filename + ".enc")
-    if not os.path.exists(enc):
-        raise HTTPException(404, "Not found")
-    dec = os.path.join(UPLOAD_FOLDER, filename)
-    decrypt_file(enc, dec, bytes.fromhex(key))
-    return FileResponse(dec, filename=filename)
+# @app.get("/download/{filename}")
+# def download_file(filename: str, key: str):
+#     enc = os.path.join(UPLOAD_FOLDER, filename + ".enc")
+#     if not os.path.exists(enc):
+#         raise HTTPException(404, "Not found")
+#     dec = os.path.join(UPLOAD_FOLDER, filename)
+#     decrypt_file(enc, dec, bytes.fromhex(key))
+#     return FileResponse(dec, filename=filename)
 
 # ─── Rate-limit & Muting Helpers ────────────────────────────────────────────────
 async def is_user_muted(user: str, now: float) -> bool:
@@ -305,27 +290,25 @@ async def handle_file_upload(ws: WebSocket, user: str, data: dict):
     if not fn or not raw:
         await ws.send_text(json.dumps({"error":"Invalid file data"}))
         return
-    path,enc = os.path.join(UPLOAD_FOLDER, fn), os.path.join(UPLOAD_FOLDER, fn+".enc")
+    path= os.path.join(UPLOAD_FOLDER, fn+".enc")
     open(path,"wb").write(raw)
-    key = get_random_bytes(32)
-    encrypt_file(path, enc, key); os.remove(path)
-    USER_FILE_KEYS[fn] = key.hex()
+    USER_FILE_KEYS[fn] = data.get("iv");
     ts = generate_timestamp()
     # broadcast
     for c in CONNECTED_CLIENTS.values():
         await c.send_text(json.dumps({
             "type":"file_upload_response",
             "filename": fn,
-            "key": key.hex(),
+            # "key": key.hex(),
             "sender": user,
             "timestamp": ts
         }))
 
 async def handle_file_download(ws: WebSocket, user: str, data: dict):
     fn  = data.get("filename")
-    key = USER_FILE_KEYS.get(fn)
+    iv_base64 = USER_FILE_KEYS.get(fn)
     enc = os.path.join(UPLOAD_FOLDER, fn+".enc")
-    if not (fn and key and os.path.exists(enc)):
+    if not (fn and iv_base64 and os.path.exists(enc)):
         await ws.send_text(json.dumps({"error":"File/download missing"}))
         return
     raw = base64.b64encode(open(enc,"rb").read()).decode()
@@ -333,7 +316,7 @@ async def handle_file_download(ws: WebSocket, user: str, data: dict):
         "type":"file_download_response",
         "filename":fn,
         "file_data": raw,
-        "key": key,
+        "iv": iv_base64,
         "sender": user
     }))
 

@@ -221,8 +221,9 @@
             // Process file download responses
             else if (data.type === "file_download_response") {
                 console.log("File downloaded. Decrypting...");
-                console.log("Received decryption key:", data.key);
-                await decryptFile(data.filename, data.file_data, data.key);
+                console.log("Received base64 iv:", data.iv);
+                await decryptFile(data.filename, data.file_data, data.iv);
+
             }
             // Process user list status updates
             else if (data.type === "user_list_status_update") {
@@ -316,7 +317,7 @@
                 arrayBuffer
             );
             let encryptedArray = new Uint8Array(encryptedData); 
-            let encryptedBase64 = btoa(String.fromCharCode(...encryptedArray)); 
+            // let encryptedBase64 = btoa(String.fromCharCode(...encryptedArray)); 
             return { encryptedFile: encryptedArray,iv: iv};
         } catch (error) {
             console.error("Error during file encryption:", error);
@@ -325,51 +326,29 @@
 
     }
 
-        
-    async function decryptFile(filename, encryptedData, key) {
+
+    async function decryptFile(filename, encryptedData, ivBase64) {
         try {
             console.log("Decrypting file:", filename);
 
        
-            if (!key || key.length === 0) {
-                console.error("Missing or empty decryption key!");
+            if (!decryptionKey) {
+                console.error("No AES decryption key available!");
                 return;
             }
-
-          
-            let rawKey = new Uint8Array(key.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-            let cryptoKey = await crypto.subtle.importKey(
-                "raw",
-                rawKey,
-                { name: "AES-GCM" },
-                false,
-                ["decrypt"]
-            );
-
             
+            //Decoding base64 data & IV
             let encryptedBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
-
-            
-            let nonce = encryptedBytes.slice(0, 16);
-            let tag = encryptedBytes.slice(16, 32);
-            let ciphertext = encryptedBytes.slice(32);
-
-            
-            let ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
-            ciphertextWithTag.set(ciphertext, 0);
-            ciphertextWithTag.set(tag, ciphertext.length);
-
-            let algorithm = {
-                name: "AES-GCM",
-                iv: nonce,
-                tagLength: 128
-            };
-
+            let iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
         
+            //Decrypt using stored decryption key and provided IV
             let decryptedBuffer = await crypto.subtle.decrypt(
-                algorithm,
-                cryptoKey,
-                ciphertextWithTag
+                {
+                    name: "AES-GCM",
+                    iv: iv,
+                },
+                decryptionKey,
+                encryptedBytes
             );
 
             console.log("File decrypted successfully.");
@@ -386,7 +365,6 @@
             alert("Failed to decrypt file.");
         }
     }
-
 
 
 
