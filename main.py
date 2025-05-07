@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response)
 
-from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -13,7 +13,6 @@ from sqlalchemy import ( create_engine, Column, Integer, String, Text, inspect)
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from passlib.context import CryptContext
-from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
 
@@ -24,7 +23,7 @@ load_dotenv()
 DATABASE_URL  = os.getenv("DATABASE_URL", "sqlite:///users.db")
 SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
-SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # if using MySQL TLS
+SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # for mySQL db 
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY") # VirusTotal API key for malware scan
 
 # Ensure upload & logs dirs exist
@@ -47,7 +46,7 @@ class User(Base):
     password_hash= Column(String(128), nullable=False)
     public_key   = Column(Text, nullable=True)
 
-# Create tables if missing
+# Creates any missing tables
 if not inspect(engine).has_table("user"):
     Base.metadata.create_all(engine)
 
@@ -58,13 +57,13 @@ def hash_password(pw: str) -> str:
 def verify_password(pw: str, h: str) -> bool:
     return pwd_context.verify(pw, h)
 
-# ─── FastAPI + SlowAPI Setup ──────────────────────────────────────────────────
+# ─── FastAPI Setup ──────────────────────────────────────────────────
 app = FastAPI()
 
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
-# Serve your existing front-end
+# Serves existing front-end
 app.mount("/static", StaticFiles(directory="client/static"), name="static")
 templates = Jinja2Templates(directory="client")
 
@@ -408,14 +407,6 @@ async def heartbeat(ws: WebSocket):
     except:
         pass
 
-@app.get("/healthz")
-def healthz():
-    """
-    Health check for external monitors.
-    Returns HTTP 200 + JSON.
-    """
-    return {"status": "ok"}
-
 # ─── Typing Indicator, Broadcasts, Undelivered & Group Logic ────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -444,36 +435,26 @@ async def websocket_endpoint(ws: WebSocket):
         # ─── Main loop ──────────────────────────────
         while True:
             raw = await ws.receive_text()
-            # 1) Try parse JSON
-            try:
+
+
+            try:  # to parse JSON
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                # If it’s truly just a raw ciphertext string,
-                # wrap it but preserve it as ciphertext
+                # If raw ciphertext string, preserve as ciphertext
                 data = {
                     "type":    "message",
                     "message": raw,
-                    # *** don’t lose the IV! ***
                     "iv":      None
                 }
 
             typ = data.get("type", "message")
 
-            # 2) Handle typing indicator immediately
+            # Handles ...istyping indicator 
             if typ == "typing":
                 cid      = data.get("chat_id")
                 isTyping = data.get("isTyping")
                 if cid:
-                    # # Determine targets based on chat type
-                    # if cid.startswith("group_") and cid in GROUP_CHATS:
-                    #     targets = GROUP_CHATS[cid]
-                    # elif cid == "general_chat":
-                    #     targets = list(CONNECTED_CLIENTS.keys())
-                    # else:
-                    #     # Private chat: extract recipient from chat ID
-                    #     recipient = cid.replace(user + "_", "").replace("_" + user, "")
-                    #     targets = [recipient]
-
+            
                     targets = get_chat_recipients(cid)
 
                     for u in targets:
@@ -486,9 +467,9 @@ async def websocket_endpoint(ws: WebSocket):
                                     "isTyping": isTyping,
                                     "chat_id":  cid
                                 }))
-                continue  # **don’t rate‐limit typing events**
+                continue  
 
-            # 3) Rate-limit everything else
+            # Rate-limiting
             now = time.time()
             if await is_user_muted(user, now):
                 continue
@@ -497,27 +478,21 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
             USER_MESSAGE_TIMESTAMPS.setdefault(user, []).append(now)
 
-            # 4) File ops
+            # File ops
             if typ == "file_upload":
                 await handle_file_upload(ws, user, data)
             elif typ == "file_download":
                 await handle_file_download(ws, user, data)
 
-            # 5) Text message
+            # Text message
             else:
                 cid = data.get("chat_id", "general_chat")
                 msg = data["message"]
                 iv  = data.get("iv", "No IV")
 
-                # Log will now correctly record ciphertext + IV
+              
                 log_message(cid, user, msg, iv)
 
-                # if cid == "general_chat":
-                #     recipients = list(CONNECTED_CLIENTS.keys())
-                # elif cid.startswith("group_"):
-                #     recipients = GROUP_CHATS.get(cid, [])
-                # else:
-                #     recipients = cid.split("_")
 
                 recipients = get_chat_recipients(cid)
 
@@ -565,8 +540,16 @@ def get_chat_recipients(chat_id):
 
     return targets
 
+# ───  24/7 Uptime robot + head request handler ───────────────────
+@app.get("/healthz")
+def healthz():
+    """
+    Health check for external monitors.
+    Returns HTTP 200 + JSON.
+    """
+    return {"status": "ok"}
 
-# HEAD request handlers 
+
 @app.head("/")               
 def head_root() -> Response:
     return Response(status_code=200)
