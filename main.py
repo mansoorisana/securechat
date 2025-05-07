@@ -1,6 +1,8 @@
-import os, json, base64, time, asyncio, httpx
+import os, json, base64, time, asyncio, httpx, firebase_admin
 from datetime import datetime
 from dotenv import load_dotenv
+
+from firebase_admin import credentials, auth
 
 from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response)
 
@@ -22,12 +24,15 @@ load_dotenv()
 
 DATABASE_URL  = os.getenv("DATABASE_URL", "sqlite:///users.db")
 SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
-UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
-SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # for mySQL db 
+SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # for mySQL db
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY") # VirusTotal API key for malware scan
 
-# Ensure upload & logs dirs exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Firebase admin sdk for token
+cred_data = json.loads(os.environ['FIREBASE_CREDENTIALS'])
+cred = credentials.Certificate(cred_data)
+firebase_admin.initialize_app(cred)
+
+# Ensure logs dirs exist
 os.makedirs("logs", exist_ok=True)
 
 # ─── Database Setup ────────────────────────────────────────────────────────────
@@ -178,6 +183,7 @@ def home_post(
 
     # Fallback 
     return JSONResponse({"message": "Unknown action"}, status_code=400)
+
 @app.get("/chat")
 def chat_page(request: Request):
     if not request.session.get("username"):
@@ -186,6 +192,14 @@ def chat_page(request: Request):
         "request": request, 
         "username": request.session["username"]
     })
+
+@app.get("/get_firebase_token")
+def get_firebase_token(request: Request):
+    if not request.session.get("username"):
+        return RedirectResponse("/home")
+    user_id = request.session.get("username")
+    custom_token = auth.create_custom_token(user_id)
+    return JSONResponse({'firebase_token': custom_token.decode('utf-8')})
 
 @app.get("/chat/{chat_id}")
 def get_chat_history(chat_id: str):
@@ -281,30 +295,6 @@ async def get_scan_result(analysis_id: str):
         "stats": result["data"]["attributes"].get("stats", {})
     }
 
-# @app.post("/upload")
-# def upload_file(
-#     file: UploadFile = File(...),
-#     username: str     = Form(None)
-# ):
-#     path = os.path.join(UPLOAD_FOLDER, file.filename)
-#     open(path, "wb").write(file.file.read())
-#     enc_path = path + ".enc"
-#     key = get_random_bytes(32)
-#     encrypt_file(path, enc_path, key)
-#     os.remove(path)
-#     if username:
-#         USER_FILE_KEYS[file.filename] = key.hex()
-#     return {"filename": file.filename, "key": key.hex()}
-
-# @app.get("/download/{filename}")
-# def download_file(filename: str, key: str):
-#     enc = os.path.join(UPLOAD_FOLDER, filename + ".enc")
-#     if not os.path.exists(enc):
-#         raise HTTPException(404, "Not found")
-#     dec = os.path.join(UPLOAD_FOLDER, filename)
-#     decrypt_file(enc, dec, bytes.fromhex(key))
-#     return FileResponse(dec, filename=filename)
-
 # ─── Rate-limit & Muting Helpers ────────────────────────────────────────────────
 async def is_user_muted(user: str, now: float) -> bool:
     expiry = MUTED_USERS.get(user)
@@ -332,22 +322,13 @@ async def handle_file_upload(ws: WebSocket, user: str, data: dict):
     chat_id = data.get("chat_id")
     if not chat_id:
         return
-    
-    raw= base64.b64decode(data.get("file_data",""))
-    if not fn or not raw:
-        await ws.send_text(json.dumps({"error":"Invalid file data"}))
-        return
-    path= os.path.join(UPLOAD_FOLDER, fn+".enc")
-    open(path,"wb").write(raw)
 
     file_record = {
         "filename": fn,
-        # "file_data": data["file_data"],
+        "firebase_url": data["firebase_url"],
         "iv": data["iv"],
         "sender": data["username"]
     }
-
-    # USER_FILE_KEYS[fn] = data.get("iv");
 
     if chat_id not in CHAT_FILES:
         CHAT_FILES[chat_id] = []
@@ -382,20 +363,14 @@ async def handle_file_download(ws: WebSocket, user: str, data: dict):
     if username not in targets:
         await ws.send_json({"type": "error", "message": "Unauthorized access"})
         return
-    
-    # iv_base64 = USER_FILE_KEYS.get(fn)
-    enc = os.path.join(UPLOAD_FOLDER, fn+".enc")
-    if not (fn and os.path.exists(enc)):
-        await ws.send_text(json.dumps({"error":"File/download missing"}))
-        return
-    raw = base64.b64encode(open(enc,"rb").read()).decode()
+
     file_entry = next((f for f in CHAT_FILES[chat_id] if f["filename"] == fn), None)
     
     if file_entry:
         await ws.send_text(json.dumps({
             "type":"file_download_response",
             "filename":fn,
-            "file_data": raw,
+            "firebase_url": file_entry["firebase_url"],
             "iv": file_entry["iv"]
         }))
 
@@ -437,7 +412,7 @@ async def websocket_endpoint(ws: WebSocket):
             raw = await ws.receive_text()
 
 
-            try:  # to parse JSON
+            try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 # If raw ciphertext string, preserve as ciphertext
@@ -449,12 +424,12 @@ async def websocket_endpoint(ws: WebSocket):
 
             typ = data.get("type", "message")
 
-            # Handles ...istyping indicator 
+            # Handles ...istyping indicator
             if typ == "typing":
                 cid      = data.get("chat_id")
                 isTyping = data.get("isTyping")
                 if cid:
-            
+
                     targets = get_chat_recipients(cid)
 
                     for u in targets:
@@ -467,7 +442,7 @@ async def websocket_endpoint(ws: WebSocket):
                                     "isTyping": isTyping,
                                     "chat_id":  cid
                                 }))
-                continue  
+                continue
 
             # Rate-limiting
             now = time.time()
@@ -490,7 +465,7 @@ async def websocket_endpoint(ws: WebSocket):
                 msg = data["message"]
                 iv  = data.get("iv", "No IV")
 
-              
+
                 log_message(cid, user, msg, iv)
 
 

@@ -5,6 +5,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.css">
 <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/quill-emoji/dist/quill-emoji.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
 
 <div class="chat-container">
     <div class="sidebar">
@@ -59,6 +62,23 @@
         </div>
     </div>
 </div>
+
+<script>
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+    apiKey: "AIzaSyASJv5LZ-8UIO4FNV4D0xx1b-Ddava_0IQ",
+    authDomain: "chat-c41b6.firebaseapp.com",
+    projectId: "chat-c41b6",
+    storageBucket: "chat-c41b6.firebasestorage.app",
+    messagingSenderId: "995826399250",
+    appId: "1:995826399250:web:fe01aa746765aff92940cb"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const storage = firebase.storage();
+</script>
 
 <script type="text/javascript">
     //for chat room
@@ -226,8 +246,9 @@
             // Process file download responses
             else if (data.type === "file_download_response") {
                 console.log("File downloaded. Decrypting...");
-                console.log("Received base64 iv:", data.iv);
-                await decryptFile(data.filename, data.file_data, data.iv);
+                console.log("Received firebaseurl & base64 iv:", data.iv);
+                
+                downloadFileFromFirebase(data.firebase_url, data.filename,data.iv)
             }
             // Process user list status updates
             else if (data.type === "user_list_status_update") {
@@ -297,9 +318,26 @@
             console.error(" Error loading AES Key:", error);
         }   
 
+        getFirebaseTokenAndLogin();
         connectWebSocket();  
     };
 
+    async function getFirebaseTokenAndLogin() {
+        const res = await fetch("/get_firebase_token", {
+            method: "GET",
+            headers: { "Content-Type": "application/json" }
+        });
+
+        const data = await res.json();
+        if (!data.firebase_token) {
+            alert("Failed to get Firebase token");
+            return;
+        }
+
+        // Firebase JS SDK login
+        await firebase.auth().signInWithCustomToken(data.firebase_token);
+        console.log("Firebase login successful");
+    }
 
 
        // encrypting file before upload
@@ -395,7 +433,8 @@
 
         let file = fileInput.files[0];
         console.log(" Selected file for upload:", file.name);
-
+        fileInput.value = ""; // Clear previous selection
+        
         let formData = new FormData();
         formData.append("file", file);
 
@@ -445,14 +484,23 @@
             let { encryptedFile, iv } = await encryptFile(file);
 
             // Encode encrypted file to Base64
-            let base64File = btoa(String.fromCharCode(...new Uint8Array(encryptedFile)));
             let ivBase64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
 
-            status.textContent = "📤 Uploading file to chat...";
+            status.textContent = "📤 Uploading file to Firebase...";
+            // Upload encrpted file to Firebase and get the URL
+            const firebaseURL = await uploadFileToFirebase(file.name, encryptedFile);
+
+            if (!firebaseURL) {
+                // If upload failed, do not proceed with saving metadata
+                console.error("File upload failed, no URL returned.");
+                setTimeout(() => status.textContent = "", 5000);
+                return;
+            }
+            // Notify the server with file metadata only
             ws.send(JSON.stringify({
                 type: "file_upload",
                 filename: file.name,
-                file_data: base64File,
+                firebase_url: firebaseURL,
                 iv: ivBase64,
                 username: username,
                 chat_id: currentChatId
@@ -468,7 +516,7 @@
         }
     }
 
-    async function pollScanResult(analysisId, maxAttempts = 10, interval = 3000) {
+    async function pollScanResult(analysisId, maxAttempts = 20, interval = 3000) {
         let attempts = 0;
 
         while (attempts < maxAttempts) {
@@ -491,14 +539,49 @@
         throw new Error("VirusTotal analysis timed out");
     }
 
-    
+    async function uploadFileToFirebase(filename, encryptedBuffer) {
+        try {
+            const storageRef = storage.ref(`chat_files/${currentChatId}/${filename}`);
+            const blob = new Blob([encryptedBuffer]);
+            const snapshot = await storageRef.put(blob);
+            const downloadURL = await snapshot.ref.getDownloadURL();
+
+            if (!downloadURL) {
+                console.error("Failed to retrieve download URL.");
+                alert("File upload failed: No URL returned.");
+                return null;  // Indicate failure
+            }    
+            console.log("File uploaded to Firebase");
+            return downloadURL;
+        } catch (error) {
+            console.error("Upload failed:", error);
+            alert("File upload failed! Please try again.");
+            return null;  // Indicate failure
+        }
+    }
+
+    async function downloadFileFromFirebase(downloadURL, fileName, base64iv) {
+        try {
+            const encryptedFileRes  = await fetch(downloadURL);
+            const encryptedArrayBuffer = await encryptedFileRes.arrayBuffer();
+            // Convert ArrayBuffer to base64 string
+            const uint8Array = new Uint8Array(encryptedArrayBuffer);
+            const base64EncryptedData = btoa(String.fromCharCode(...uint8Array));
+
+            await decryptFile(fileName, base64EncryptedData, base64iv);
+
+        } catch (err) {
+            console.error("Failed to download from Firebase:", err);
+            alert("File Download failed!");
+        }
+    }
+
     function downloadFile() {
             if (availableFiles.length === 0) {
                 alert("No files available for download.");
                 return;
             }
-        document.getElementById("file-selection-modal").style.display = "block";
-        
+        document.getElementById("file-selection-modal").style.display = "block";     
     }
 
 
@@ -514,7 +597,7 @@
 
 
     function closeModal() {
-    document.getElementById("file-selection-modal").style.display = "none";
+        document.getElementById("file-selection-modal").style.display = "none";
     }
 
 
@@ -876,10 +959,20 @@
 
     //Handler for "Leave Room" button
     const leaveRoom = () => {
-        console.log("Leaving room...");
-        ws.close();
-        window.location.href = "/leave";  //Call Backend for redirection
+        firebase.auth().signOut()
+        .then(() => {
+            console.log("Firebase logged out");
+            console.log("Leaving room...");
+            ws.close();
+            window.location.href = "/leave";  // Call backend after logout
+        })
+        .catch((error) => {
+            console.error("Error signing out of Firebase:", error);
+            // Still try to leave the room if Firebase logout fails
+            console.log("Leaving room...");
+            ws.close();
+            window.location.href = "/leave";
+        });
     };
-
 </script>
 {% endblock %}
