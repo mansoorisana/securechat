@@ -475,7 +475,9 @@ async def websocket_endpoint(ws: WebSocket):
                     "chat_id":   cid,
                     "sender":    user,
                     "message":   msg,
-                    "timestamp": generate_timestamp()
+                    "timestamp": generate_timestamp(),
+                    "iv": iv,
+                    "encrypted": data["encrypted"]
                 }
                 for u in recipients:
                     ws2 = CONNECTED_CLIENTS.get(u)
