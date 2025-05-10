@@ -222,10 +222,14 @@ def get_chat_history(chat_id: str):
 def create_group(data: dict):
     name    = data.get("group_name")
     members = data.get("members")
+    encrypted_keys = data.get("encrypted_keys")
     if not name or not members:
         raise HTTPException(400, "Name & members required")
     chat_id = f"group_{name}"
-    GROUP_CHATS[chat_id] = members
+    GROUP_CHATS[chat_id] = {
+        "members": members,
+        "encrypted_keys": encrypted_keys
+    }
     return {"chat_id": chat_id, "members": members}
 
 @app.get("/leave")
@@ -470,6 +474,7 @@ async def websocket_endpoint(ws: WebSocket):
 
 
                 recipients = get_chat_recipients(cid)
+                is_group = cid.startswith("group_") and cid in GROUP_CHATS
 
                 envelope = {
                     "chat_id":   cid,
@@ -479,7 +484,15 @@ async def websocket_endpoint(ws: WebSocket):
                     "iv": iv,
                     "encrypted": data["encrypted"]
                 }
+
                 for u in recipients:
+                    #if its a group chat send the encrypted group key to the specific recipient
+                    if is_group:
+                        encrypted_key = GROUP_CHATS[cid]["encrypted_keys"].get(u)
+                        if encrypted_key:
+                            envelope["group_key"] = encrypted_key["groupKey"]
+                            envelope["group_key_iv"] = encrypted_key["groupKeyiv"]
+
                     ws2 = CONNECTED_CLIENTS.get(u)
                     if ws2:
                         await ws2.send_text(json.dumps(envelope))
@@ -509,7 +522,7 @@ async def notify_user_list():
 def get_chat_recipients(chat_id):
     # Returns a list of usernames based on the chat type
     if chat_id.startswith("group_") and chat_id in GROUP_CHATS:
-        targets = GROUP_CHATS[chat_id]
+        targets = GROUP_CHATS[chat_id]["members"]
     elif chat_id == "general_chat":
         targets = list(CONNECTED_CLIENTS.keys())
     else:

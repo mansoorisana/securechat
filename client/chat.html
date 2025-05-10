@@ -118,6 +118,24 @@
         }
     }
 
+    async function generateGroupKey() {
+        return await crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+    async function exportAndEncryptGroupKey(groupKey, recipientPubKey, myPrivateKey) {
+        const rawKey = await crypto.subtle.exportKey("raw", groupKey);
+        const symmetricKey = await deriveSymmetricKey(myPrivateKey, recipientPubKey);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, symmetricKey, rawKey);
+        return {
+            groupKey: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+            groupKeyiv: btoa(String.fromCharCode(...iv))
+        };
+    }
 
     //genereates ECDH key pair for users
     async function generateKeyPair() {
@@ -187,6 +205,55 @@
                     updateActiveChats();
                 }
 
+                // Handle the encrypted group key if it's sent
+                if (data.group_key && !groupKeys[data.chat_id]) {
+                    try {
+                        const encryptedKeyBytes = Uint8Array.from(atob(data.group_key), c => c.charCodeAt(0));
+                        const ivBytes = Uint8Array.from(atob(data.group_key_iv), c => c.charCodeAt(0));
+
+                        // Derive symmetric key using your ECDH private key and sender's public key
+                        if (!recipientPublicKeys[data.sender]) {
+                            let res = await fetch(`/get_public_key/${data.sender}`);
+                            let pkData = await res.json();
+                            if (pkData.public_key) {
+                                let importedKey = await crypto.subtle.importKey(
+                                    "jwk",
+                                    JSON.parse(pkData.public_key),
+                                    { name: "ECDH", namedCurve: "P-256" },
+                                    true,
+                                    [] 
+                                );
+                                recipientPublicKeys[data.sender] = importedKey;
+                            } else {
+                                console.error("Recipient public key not found for", data.sender);
+                                return;
+                            }
+                        }
+                        const senderPubKey = recipientPublicKeys[data.sender];
+                        const symmetricKey = await deriveSymmetricKey(userKeyPair.privateKey, senderPubKey);
+
+                        const decryptedKeyBuffer = await crypto.subtle.decrypt(
+                            { name: "AES-GCM", iv: ivBytes },
+                            symmetricKey,
+                            encryptedKeyBytes
+                        );
+
+                        const groupSymmetricKey = await crypto.subtle.importKey(
+                            "raw",
+                            decryptedKeyBuffer,
+                            { name: "AES-GCM", length: 256 },
+                            false,
+                            ["encrypt", "decrypt"]
+                        );
+
+                        groupKeys[data.chat_id] = groupSymmetricKey;
+                        console.log("Group key imported and cached for", data.chat_id);
+                    } catch (err) {
+                        console.error("Error decrypting group key:", err);
+                        return;
+                    }
+                }
+
                 // Show typing indicator in active chat
                 if (data.type === "typing") {
                     if (data.chat_id === currentChatId) {
@@ -237,6 +304,21 @@
                         let conversationKey = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
                         let plaintext = await decryptChatMessage(data.message, data.iv, conversationKey);
                         showMessage(data.timestamp, data.sender, plaintext);
+                    } else if (data.encrypted && data.chat_id.startsWith("group_")) {
+                        // Group message decryption branch
+                        // Use the cached group key to decrypt the message
+                        const groupKey = groupKeys[data.chat_id];
+                        if (!groupKey) {
+                            console.error("Missing group key for", data.chat_id);
+                            return;
+                        }
+
+                        try {
+                            const plaintext = await decryptChatMessage(data.message, data.iv, groupKey);
+                            showMessage(data.timestamp, data.sender, plaintext);
+                        } catch (err) {
+                            console.error("Failed to decrypt group message:", err);
+                        }
                     } else {
                         // For general and group chats, display the plain text message.
                         showMessage(data.timestamp, data.sender, data.message);
@@ -630,7 +712,7 @@
     }
 
     //Creating chat based on checklist items selected
-    function createChat() {
+    async function createChat() {
         let selectedUsers = Array.from(document.querySelectorAll("#user-list input:checked"))
                                 .map(input => input.value);
 
@@ -645,15 +727,49 @@
             let groupName = prompt("Enter group name:");
             if (!groupName) return;
             
+            const groupKey = await generateGroupKey();
+        const groupKeyExports = {};
+
+        const members = [username, ...selectedUsers];
+        for (const member of members) {
+            if (!recipientPublicKeys[member]) {
+                const res = await fetch(`/get_public_key/${member}`);
+                const data = await res.json();
+                if (!data.public_key) {
+                    alert(`Missing public key for ${member}`);
+                    return;
+                }
+                const imported = await crypto.subtle.importKey(
+                    "jwk",
+                    JSON.parse(data.public_key),
+                    { name: "ECDH", namedCurve: "P-256" },
+                    true,
+                    []
+                );
+                recipientPublicKeys[member] = imported;
+            }
+
+            const encrypted = await exportAndEncryptGroupKey(
+                groupKey,
+                recipientPublicKeys[member],
+                userKeyPair.privateKey
+            );
+
+            groupKeyExports[member] = encrypted;
+        }
+
             fetch("/create_group", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ group_name: groupName, members: [username, ...selectedUsers] })
+                body: JSON.stringify({ group_name: groupName, members, encrypted_keys: groupKeyExports})
             })
             .then(res => res.json())
             .then(data => {
                 currentChatId = data.chat_id;
                 activeChats.add(currentChatId);
+                // Save the group key
+                groupKeys[currentChatId] = groupKey;
+
                 loadChat(currentChatId);
             });
         }
@@ -691,7 +807,7 @@
 
         // Show or hide the DM E2E notice as appropriate:
         const dmInfo = document.getElementById("dm-info");
-        if (chatId === "general_chat" || chatId.startsWith("group_")) {
+        if (chatId === "general_chat") {
             dmInfo.style.display = "none";
         } else {
             dmInfo.style.display = "block";
@@ -768,6 +884,24 @@
                             console.error("Error decrypting DM log:", loggedMessage, e);
                             showMessage(timestamp, sender, "Decryption failed");
                         }
+                    } else if(chatId.startsWith("group_")) {
+
+                        // Parse the logged message, which should be a JSON string.
+                        let parsed = JSON.parse(loggedMessage);
+
+                        // Use the cached group key to decrypt the message
+                        const groupKey = groupKeys[chatId];
+                        if (!groupKey) {
+                            console.error("Missing group key for", chatId);
+                            return;
+                        }
+                        try {
+                            const plaintext = await decryptChatMessage(parsed.ciphertext, parsed.iv, groupKey);
+                            showMessage(timestamp, sender, plaintext);
+                        } catch (err) {
+                            console.error("Failed to decrypt group message:", err);
+                        }
+
                     } else {
                         // For general, display plaintext msgs.
                         showMessage(timestamp, sender, loggedMessage);
@@ -884,8 +1018,29 @@
                 encrypted: true
             }));
             quill.root.innerHTML = "";
+        } else if (currentChatId.startsWith("group_")) {
+            //This branch handles group chats (encrypted) 
+            let groupKey = groupKeys[currentChatId];
+            if (!groupKey) {
+                console.error("Group encryption key not available for", currentChatId);
+                return;
+            }
+
+            const { ciphertext, iv } = await encryptChatMessage(sanitizedMessage, groupKey);
+            let encodedCiphertext = btoa(String.fromCharCode(...ciphertext));
+            let encodedIv = btoa(String.fromCharCode(...iv));
+
+            ws.send(JSON.stringify({
+                chat_id: currentChatId,
+                sender: username,
+                message: encodedCiphertext,
+                iv: encodedIv,
+                encrypted: true
+            }));
+
+            quill.root.innerHTML = "";
         } else {
-            // This branch handles general and group chats (unencrypted)
+            // This branch handles general (unencrypted)
             ws.send(JSON.stringify({
                 chat_id: currentChatId,
                 sender: username,
