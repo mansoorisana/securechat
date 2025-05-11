@@ -1,21 +1,24 @@
-import os, json, base64, time, asyncio, httpx, firebase_admin
-from datetime import datetime
+import os, json, time, asyncio, httpx, firebase_admin
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from firebase_admin import credentials, auth
 
-from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response)
+from fastapi import ( FastAPI, Request, Form, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException, Response, Depends)
 
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from sqlalchemy import ( create_engine, Column, Integer, String, Text, inspect)
+from sqlalchemy import ( create_engine, Column, Integer, String, Text, inspect, DateTime)
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.dialects.postgresql.base import PGDialect
 
 from passlib.context import CryptContext
-from Crypto.Random import get_random_bytes
+
+
+from json import JSONDecoder
 
 
 
@@ -24,11 +27,13 @@ load_dotenv()
 
 DATABASE_URL  = os.getenv("DATABASE_URL", "sqlite:///users.db")
 SECRET_KEY    = os.getenv("SECRET_KEY", "fallback-secret")
-SSL_CA_PATH   = os.getenv("SSL_CA_PATH", "")  # for mySQL db
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY") # VirusTotal API key for malware scan
 
 # Firebase admin sdk for token
-cred_data = json.loads(os.environ['FIREBASE_CREDENTIALS'])
+raw = os.environ.get("FIREBASE_CREDENTIALS", "")
+if not raw:
+    raise RuntimeError("FIREBASE_CREDENTIALS not set")
+cred_data = JSONDecoder(strict=False).decode(raw)
 cred = credentials.Certificate(cred_data)
 firebase_admin.initialize_app(cred)
 
@@ -36,11 +41,14 @@ firebase_admin.initialize_app(cred)
 os.makedirs("logs", exist_ok=True)
 
 # ─── Database Setup ────────────────────────────────────────────────────────────
-connect_args = {}
-if DATABASE_URL.startswith("mysql") and SSL_CA_PATH:
-    connect_args = {"ssl": {"ca": SSL_CA_PATH}}
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
+
+# forces SQLAlchemy to treat CockroachDB as if it were PostgreSQL 13.0
+PGDialect._get_server_version_info = lambda self, connection: (13, 0)
+
+
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -50,10 +58,36 @@ class User(Base):
     username     = Column(String(50), unique=True, nullable=False)
     password_hash= Column(String(128), nullable=False)
     public_key   = Column(Text, nullable=True)
+class Message(Base):
+    __tablename__ = "message"
+    id        = Column(Integer, primary_key=True, index=True)
+    chat_id   = Column(String(50), index=True, nullable=False)
+    sender    = Column(String(50), nullable=False)
+    recipient = Column(String(100), nullable=False)
+    content   = Column(Text, nullable=False)
+    iv        = Column(String(256), nullable=False)
+    timestamp = Column(DateTime(timezone=True),
+                       default=lambda: datetime.now(timezone.utc))
+
+class Log(Base):
+    __tablename__ = "log"
+    id        = Column(Integer, primary_key=True, index=True)
+    chat_id   = Column(String(50), index=True, nullable=False)
+    user      = Column(String(50), nullable=False)
+    action    = Column(String(100), nullable=False)
+    details   = Column(Text, nullable=True)
+    timestamp = Column(DateTime(timezone=True),
+                       default=lambda: datetime.now(timezone.utc))
 
 # Creates any missing tables
-if not inspect(engine).has_table("user"):
-    Base.metadata.create_all(engine)
+Base.metadata.create_all(engine)
+#---- DB HELper dependency----
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # ─── Password Utilities ────────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -289,6 +323,34 @@ async def get_scan_result(analysis_id: str):
         "status": result["data"]["attributes"]["status"],
         "stats": result["data"]["attributes"].get("stats", {})
     }
+# PHP-friendly HTTP endpoints
+app.get("/api/history/{chat_id}")
+def get_history(chat_id: str, db: Session = Depends(get_db)):
+    msgs = (
+        db.query(Message)
+          .filter(Message.chat_id == chat_id)
+          .order_by(Message.timestamp.desc())
+          .limit(100)
+          .all()
+    )
+    return [
+        {
+            "sender":   m.sender,
+            "recipient":m.recipient,
+            "content":  m.content,
+            "iv":       m.iv,
+            "timestamp":m.timestamp.isoformat()
+        }
+        for m in reversed(msgs)
+    ]
+
+@app.post("/api/logs/{chat_id}")
+def add_log(chat_id: str, action: str = Form(...), details: str = Form(None),
+            db: Session = Depends(get_db)):
+    entry = Log(chat_id=chat_id, user="external", action=action, details=details)
+    db.add(entry)
+    db.commit()
+    return {"status":"ok"}
 
 # ─── Rate-limit & Muting Helpers ────────────────────────────────────────────────
 async def is_user_muted(user: str, now: float) -> bool:
@@ -456,9 +518,24 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Text message
             else:
+                #logs message to cockroachDB
                 cid = data.get("chat_id", "general_chat")
                 msg = data["message"]
                 iv  = data.get("iv", "No IV")
+
+                db: Session = SessionLocal()
+                db.add(
+                    Message(
+                    chat_id   = cid,
+                    sender    = user,
+                    recipient = ",".join(get_chat_recipients(cid)),
+                    content   = msg,
+                    iv        = iv or "",
+                    timestamp = datetime.now(timezone.utc)    
+                    )
+                )
+                db.commit()
+                db.close()
 
 
                 log_message(cid, user, msg, iv)
