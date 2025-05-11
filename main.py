@@ -323,27 +323,8 @@ async def get_scan_result(analysis_id: str):
         "status": result["data"]["attributes"]["status"],
         "stats": result["data"]["attributes"].get("stats", {})
     }
-# PHP-friendly HTTP endpoints
-app.get("/api/history/{chat_id}")
-def get_history(chat_id: str, db: Session = Depends(get_db)):
-    msgs = (
-        db.query(Message)
-          .filter(Message.chat_id == chat_id)
-          .order_by(Message.timestamp.desc())
-          .limit(100)
-          .all()
-    )
-    return [
-        {
-            "sender":   m.sender,
-            "recipient":m.recipient,
-            "content":  m.content,
-            "iv":       m.iv,
-            "timestamp":m.timestamp.isoformat()
-        }
-        for m in reversed(msgs)
-    ]
 
+# API logging and history
 @app.post("/api/logs/{chat_id}")
 def add_log(chat_id: str, action: str = Form(...), details: str = Form(None),
             db: Session = Depends(get_db)):
@@ -351,6 +332,33 @@ def add_log(chat_id: str, action: str = Form(...), details: str = Form(None),
     db.add(entry)
     db.commit()
     return {"status":"ok"}
+
+
+
+@app.get("/api/history/{chat_id}")
+def get_history(chat_id: str, db: Session = Depends(get_db)):
+    msgs = (
+        db.query(Message)
+          .filter(
+             Message.chat_id == chat_id,
+             Message.timestamp != None
+          )
+          .order_by(Message.timestamp.desc())
+          .limit(100)
+          .all()
+    )
+    out = []
+    for m in reversed(msgs):
+        out.append({
+            "sender":    m.sender,
+            "recipient": m.recipient,
+            "content":   m.content,
+            "iv":        m.iv,
+            "timestamp": m.timestamp.isoformat() if m.timestamp else ""
+        })
+    return out
+
+
 
 # ─── Rate-limit & Muting Helpers ────────────────────────────────────────────────
 async def is_user_muted(user: str, now: float) -> bool:

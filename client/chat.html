@@ -160,7 +160,25 @@
         return new TextDecoder().decode(decryptedBuffer);
     }
 
+    async function loadHistory(chatId) {
+    console.log('loading history for', chatId);
+      const resp = await fetch(`/api/history/${chatId}`);
+      if (!resp.ok) {
+        console.error("Could not load history for", chatId, resp.status);
+        return;
+      }
+      const msgs = await resp.json();
+      console.log('got history:', msgs);
+      msgs.forEach(m => showMessage(m.timestamp, m.sender, m.content));
+    }
 
+    async function logMessageToDb(chatId, action, details) {
+      await fetch(`/api/logs/${chatId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action, details })
+      });
+    }
     
     function connectWebSocket() {
         const scheme = window.location.protocol === "https:" ? "wss" : "ws";
@@ -373,6 +391,8 @@
 
         getFirebaseTokenAndLogin();
         connectWebSocket();  
+
+        await loadHistory(currentChatId);
     };
 
     async function getFirebaseTokenAndLogin() {
@@ -840,6 +860,9 @@
         const messagesDiv = document.getElementById("messages");
         messagesDiv.innerHTML = "";
 
+        // pulls persisted rows from CockroachDB
+        await loadHistory(chatId);
+
         // Show or hide the DM E2E notice as appropriate:
         const dmInfo = document.getElementById("dm-info");
         if (chatId === "general_chat") {
@@ -1052,7 +1075,15 @@
                 iv: encodedIv,
                 encrypted: true
             }));
+             // logs the encrypted DM to cockroachDB
+            await logMessageToDb(
+                currentChatId,
+                "sent_encrypted",
+                JSON.stringify({ ciphertext: encodedCiphertext, iv: encodedIv })
+            );
+
             quill.root.innerHTML = "";
+
         } else if (currentChatId.startsWith("group_")) {
             //This branch handles group chats (encrypted) 
             let groupKey = groupKeys[currentChatId];
@@ -1072,7 +1103,12 @@
                 iv: encodedIv,
                 encrypted: true
             }));
-
+                // logs the group encrypted DMs to cockroachDB
+            await logMessageToDb(
+                currentChatId,
+                "sent_group_encrypted",
+                JSON.stringify({ ciphertext: encodedCiphertext, iv: encodedIv })
+            );
             quill.root.innerHTML = "";
         } else {
             // This branch handles general (unencrypted)
@@ -1082,6 +1118,10 @@
                 message: sanitizedMessage,
                 encrypted: false
             }));
+
+             // stores it in CockroachDB:
+            await logMessageToDb(currentChatId, "sent", sanitizedMessage);
+
             quill.root.innerHTML = "";
         }
 
