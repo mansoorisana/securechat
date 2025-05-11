@@ -25,63 +25,39 @@ It enables multiple users to connect, send messages, files instantly, and handle
 
 ---
 
-## 📌 Installation  
+## 📌 Hosting & Deployment  
 
-### **1️⃣ Install Python (if not already installed)**  
-Ensure you have Python **3.8 or later** installed. If not, download it from:  
-🔗 [Python Official Website](https://www.python.org/downloads/)  
+### **1️⃣ Public Hosted Website**  
+The application is available at: 🔗 https://securechat-oe69.onrender.com/home 
 
-### **2️⃣ Install Required Dependencies**  
-Run the following command in the project directory:  
-```bash
-pip install -r requirements.txt
-```
+The WebSocket server runs at: 🔗 wss://securechat-oe69.onrender.com/ws
 
-### **3️⃣ Create the .env File**
-In the same folder as websocket.py, create a new file named .env and add:
-```bash
-SECRET_KEY=your-secure-random-key
-```
-Replace 'your-secure-random-key' with a randomly generated secure key.
+### **2️⃣ Render Deployment**  
+Render dashboard for deployed server:
 
-### **4️⃣ Generate SSL Certificates (Self-Signed)**
-SecureChat requires an SSL certificate to enable **encrypted WebSocket (wss://) communication**.
+![Render dashboard](images/render.png?raw=true)
 
-Running the following command will create an SSL certificate and key with default filenames:
+### **3️⃣ Database**
+Database tables:
 
-```bash
-openssl req -x509 -newkey rsa:4096 -keyout your_key.pem -out your_cert.pem -days 365 -nodes
-```
+![Cockroach DB dashboard](images/db.png?raw=true)
 
-### **⚠️Custom SSL Certificate Names(Only if neccessary)**
-If you used different filenames for your cetificate and private key, add them to an .env file:
+### **4️⃣ UptimeRobot**
+UptimeRobot Dashboard:
 
-```bash
-SSL_CERT_PATH=your_custom_cert.pem
-SSL_KEY_PATH=your_custom_key.pem
-```
-Replace your_custom_cert.pem and your_custom_key.pem with your actual variable names.
+![UptimeRobot dashboard](images/uptimerobot.png?raw=true)
 
 
-### **5️⃣ Run the Application**
-Start the Flask and WebSocket server with:
-```bash
-python websocket.py
-```
+### **5️⃣ VirusTotal**
+VirusTotal APIs used: 
 
-The application will be available at:
-🔗 https://localhost:5000/home
+![VirusTotal API dashboard](images/virustotal.png?raw=true)
 
-### **NOTE: SERVER DEPLOYMENT ON CLOUD**
-The server was hosted on cloud using Amazon EC2 and was available at below IP. 
-The application was available at: 🔗 https://3.148.186.254:5000/home 
-The WebSocket server ran at: 🔗 wss://3.148.186.254:8765/ 
 
-This is demonstrated in video recordings. The instance is now deleted due to uncertainty regarding duration of hosting the server & costs of using the cloud service. Refer below screenshot for server setup:
+### **6️⃣ Firebase**
+Firebase bucket: 
 
-![EC2 instance log](images/ssh.png?raw=true)
-
-![Server Files](images/ftp.png?raw=true)
+![Firebase Storage image](images/firebase.png?raw=true)
 
 ---
 
@@ -148,7 +124,6 @@ This is demonstrated in video recordings. The instance is now deleted due to unc
 /SecureChat
 │── main.py                     # Main Python server file
 │── requirements.txt            # Dependency list
-│── .env.example                # Example .env file (without actual secrets)
 │── .gitignore                  # Ensures sensitive files are not pushed to Git
 │── /client                  # HTML templates
 │   ├── index.html              # Signup/Login page
