@@ -14,6 +14,8 @@ It enables multiple users to connect, send messages, files instantly, and handle
 - **Flask-Bcrypt** – Securely hashes user passwords.
 - **SSL/TLS Encryption** – Secures WebSocket communication.
 - **SQLite** – Lightweight database for user authentication.
+- **Quill Editor & Emoji Picker** - Provides rich text formatting and emoji support.
+
 - **Render** - Hosting FastAPI, templates and Websocket server.
 - **PostgreSQL** - Database storage service offered on Render.
 - **UptimeRobot** - Uptime monitoring service.
@@ -114,14 +116,16 @@ This is demonstrated in video recordings. The instance is now deleted due to unc
 - Provides list of online users to select from for **private** and **group** chat.
 - Users can view and select their **active chats**.
 - Seamlessly **switch** between conversations without leaving the application with session chat history.
-- User lists shows green and red dot for ach user to indicate **online** and **offline** presence.
-- Each active chat shows **typing** indicators for the user who is typing in the chat.
+- User lists shows green and red dot for each user to indicate **online** and **offline** presence.
+- Current open chat shows **typing** indicators for the user who is typing in the chat.
 
 ### **7️⃣ Secure File Sharing (Cloud Friendly)**
 - All chats have file **upload/download** options.
 - File uploads are first scanned with **VirusTotal** APIs for **malware** before transmission at client-side 
 - Files are **encrypted** before upload to cloud storage & decrypted upon download.
-- Uploaded files are hosted on **Firebase** per chat id.  
+- Uploaded files are hosted on **Firebase** per chat id.
+- Custom Auth token is issued to the authenticated user upon login to the server for Firebase Authentication. The user is signed out from Firebase after logging out from the chat page. 
+- Firebase bucket rule allows read & write only from authenticated users.
 
 ### **8️⃣ Emoji & Rich Media Support**  
 - Send **emojis** in chat with the Unicode emoji picker.
