@@ -91,32 +91,11 @@
 
 
     // secure file sharing variables & e2e keys
-    let decryptionKey; //AES key  file sharing
     let groupKeys = {}; 
     let availableFiles = []; 
     let userKeyPair; 
     let recipientPublicKeys = {};
 
-
-
-
-    async function getCryptoKey() {
-        try {
-            let response = await fetch("/get_aes_key");
-            let data = await response.json();
-            if (data.error) {
-                console.error(" Error retrieving AES key:", data.error);
-                return null;
-            }
-
-            console.log(" AES Key retrieved successfully");
-            let rawKey = Uint8Array.from(atob(data.aes_key), c => c.charCodeAt(0));
-            return await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-        } catch (error) {
-            console.error(" Error retrieving AES key:", error);
-            return null;
-        }
-    }
 
     async function generateGroupKey() {
         return await crypto.subtle.generateKey(
@@ -377,14 +356,6 @@
     window.onload = async () => {
         try {
 
-            //for file sharing 
-            decryptionKey = await getCryptoKey();
-            if (decryptionKey) {
-                console.log(" Decryption Key Loaded Successfully:", decryptionKey);
-            } else {
-                console.warn(" Warning: Failed to load AES Key.");
-            }
-
             //for E2E chat, a public key registar
             userKeyPair = await generateKeyPair();
             let exportedPublic = await crypto.subtle.exportKey("jwk", userKeyPair.publicKey);
@@ -397,7 +368,7 @@
 
 
         } catch (error) {
-            console.error(" Error loading AES Key:", error);
+            console.error(" Error registering public Key:", error);
         }   
 
         getFirebaseTokenAndLogin();
@@ -422,26 +393,67 @@
     }
 
 
-       // encrypting file before upload
+    // encrypting file before upload
     async function encryptFile(file) {
         console.log("encryptFile called for file:", file.name);
-        if (!decryptionKey) {
-            console.error("No AES decryption key available!");
-            alert("Encryption key not loaded. Please refresh the page.");
+
+        const chatId = currentChatId;
+        let iv = null;
+        let key = null;
+        let arrayBuffer = await file.arrayBuffer();
+
+        // General chat upload file as it is
+        if (chatId=="general_chat") {
+            console.log("General chat: uploading file.");
+            return { encryptedFile: new Uint8Array(arrayBuffer), iv: null };  // No IV needed
+        } else if (chatId.startsWith("group_")) { // get group key
+            key = groupKeys[chatId];
+            if (!key ) {
+                console.error("No Group decryption key available!");
+                return null;
+            }
+        } else { //private chat, check for recipient public key
+            let participants = chatId.split("_");
+            let recipient = participants.find(u => u !== username);
+            if (!recipient) {
+                console.error("Recipient not found in chat_id");
+                return null;
+            }
+            if (!recipientPublicKeys[recipient]) {
+                let res = await fetch(`/get_public_key/${recipient}`);
+                let pkData = await res.json();
+                if (pkData.public_key) {
+                    let importedKey = await crypto.subtle.importKey(
+                        "jwk",
+                        JSON.parse(pkData.public_key),
+                        { name: "ECDH", namedCurve: "P-256" },
+                        true,
+                        []
+                    );
+                    recipientPublicKeys[recipient] = importedKey;
+                } else {
+                    console.error("Recipient public key not found for", recipient);
+                    return null;
+                }
+            }
+            key = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
+        }
+        
+        if (!key) {
+            console.error("No encryption key available for chat: ", chatId);
             return null;
         }
 
-        let arrayBuffer = await file.arrayBuffer();
-        let iv = crypto.getRandomValues(new Uint8Array(16));
+        iv = crypto.getRandomValues(new Uint8Array(16));
 
         try {
             let encryptedData = await crypto.subtle.encrypt(
                 { name: "AES-GCM", iv: iv },
-                decryptionKey,
+                key,
                 arrayBuffer
             );
             let encryptedArray = new Uint8Array(encryptedData); 
-            return { encryptedFile: encryptedArray,iv: iv};
+            return { encryptedFile: encryptedArray, iv: iv};
         } catch (error) {
             console.error("Error during file encryption:", error);
             return null;
@@ -449,34 +461,79 @@
 
     }
 
-
     async function decryptFile(filename, encryptedData, ivBase64) {
+        const chatId = currentChatId;
+        let key = null;
+        let iv = null;
+
         try {
             console.log("Decrypting file:", filename);
 
-       
-            if (!decryptionKey) {
-                console.error("No AES decryption key available!");
+            // General chat upload file as it is
+            if (chatId=="general_chat") {
+                console.log("General chat: downloading file.");
+                let fileBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+                let blob = new Blob([fileBytes]);
+                let link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                link.click();
                 return;
+            } else if (chatId.startsWith("group_")) { // get group key
+                key = groupKeys[chatId];
+                if (!key ) {
+                    console.error("No Group decryption key available!");
+                    return null;
+                }
+            } else { //private chat, check for recipient public key
+                let participants = chatId.split("_");
+                let recipient = participants.find(u => u !== username);
+                if (!recipient) {
+                    console.error("Recipient not found in chat_id");
+                    return;
+                }
+                if (!recipientPublicKeys[recipient]) {
+                    let res = await fetch(`/get_public_key/${recipient}`);
+                    let pkData = await res.json();
+                    if (pkData.public_key) {
+                        let importedKey = await crypto.subtle.importKey(
+                            "jwk",
+                            JSON.parse(pkData.public_key),
+                            { name: "ECDH", namedCurve: "P-256" },
+                            true,
+                            []
+                        );
+                        recipientPublicKeys[recipient] = importedKey;
+                    } else {
+                        console.error("Recipient public key not found for", recipient);
+                        return;
+                    }
+                }
+                key = await deriveSymmetricKey(userKeyPair.privateKey, recipientPublicKeys[recipient]);
             }
             
+            if (!key) {
+                console.error("No encryption key available for chat: ", chatId);
+                return null;
+            }
+
             //Decoding base64 data & IV
             let encryptedBytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
-            let iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+            iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
         
-            //Decrypt using stored decryption key and provided IV
+            //Decrypt using group decryption key and provided IV
             let decryptedBuffer = await crypto.subtle.decrypt(
                 {
                     name: "AES-GCM",
                     iv: iv,
                 },
-                decryptionKey,
+                key,
                 encryptedBytes
             );
 
             console.log("File decrypted successfully.");
 
-           
+            
             let blob = new Blob([decryptedBuffer], { type: "text/plain;charset=utf-8" });
             let link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
@@ -488,8 +545,6 @@
             alert("Failed to decrypt file.");
         }
     }
-
-
 
     // Update the dropdown options based on availableFiles array
     function updateFileDropdown() {
@@ -560,13 +615,15 @@
                 alert("WebSocket is not connected. Try reloading the page.");
                 return;
             }
+
             status.textContent = "🔐 Encrypting file...";
             console.log("About to encrypt file:", file.name);
 
             let { encryptedFile, iv } = await encryptFile(file);
 
             // Encode encrypted file to Base64
-            let ivBase64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
+            let ivBase64 = iv ? btoa(String.fromCharCode(...new Uint8Array(iv))) : null;
+
 
             status.textContent = "📤 Uploading file to Firebase...";
             // Upload encrpted file to Firebase and get the URL
@@ -598,7 +655,7 @@
         }
     }
 
-    async function pollScanResult(analysisId, maxAttempts = 20, interval = 3000) {
+    async function pollScanResult(analysisId, maxAttempts = 25, interval = 3000) {
         let attempts = 0;
 
         while (attempts < maxAttempts) {
@@ -773,28 +830,6 @@
                 loadChat(currentChatId);
             });
         }
-        updateActiveChats();
-    }
-
-    //creating function for main server general chat
-    function goToGeneralChat() { 
-        currentChatId = "general_chat"; 
-        document.getElementById("chat-header").innerText = "Chat: General Chat";
-        document.getElementById("messages").innerHTML = "";
-
-        document.getElementById("go-to-general-btn").style.display = "none";  
-
-        fetch(`/chat/general_chat`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.chat_logs) {
-                    data.chat_logs.forEach(log => {
-                        let parts = log.split(": ");
-                        showMessage(parts[0].replace(/\[.*\]/, "").trim(), parts.slice(1).join(": "));
-                    });
-                }
-            });
-
         updateActiveChats();
     }
 

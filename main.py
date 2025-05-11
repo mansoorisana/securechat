@@ -86,8 +86,6 @@ MESSAGE_RATE_LIMIT = 5    # msgs
 TIME_FRAME         = 10   # seconds
 MUTE_DURATION      = 10   # seconds
 
-AES_KEY                = None
-
 HEARTBEAT_INTERVAL     = 10   # seconds
 HEARTBEAT_TIMEOUT      = 5    # seconds
 
@@ -257,13 +255,6 @@ def get_public_key(username: str):
     if not user or not user.public_key:
         raise HTTPException(404, "Key not found")
     return {"public_key": user.public_key}
-
-@app.get("/get_aes_key")
-def get_aes_key():
-    global AES_KEY
-    if AES_KEY is None:
-        AES_KEY = get_random_bytes(32)
-    return {"aes_key": base64.b64encode(AES_KEY).decode()}
 
 #VirusTotal scan
 @app.post("/scan")
