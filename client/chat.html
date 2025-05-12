@@ -125,6 +125,45 @@
         );
     }
 
+    async function generateOrLoadKeyPair() {
+        const storedPrivate = sessionStorage.getItem("ecdh_private");
+        const storedPublic = sessionStorage.getItem("ecdh_public");
+
+        if (storedPrivate && storedPublic) {
+            // Restore key pair
+            const privateKey = await crypto.subtle.importKey(
+                "jwk",
+                JSON.parse(storedPrivate),
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                ["deriveKey"]
+            );
+
+            const publicKey = await crypto.subtle.importKey(
+                "jwk",
+                JSON.parse(storedPublic),
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
+            );
+
+            console.log("ECDH key pair loaded from sessionStorage");
+            return { publicKey, privateKey };
+        } else {
+            // Generate and store key pair
+            const keyPair = await generateKeyPair();
+            const exportedPrivate = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+            const exportedPublic = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+
+            sessionStorage.setItem("ecdh_private", JSON.stringify(exportedPrivate));
+            sessionStorage.setItem("ecdh_public", JSON.stringify(exportedPublic));
+
+            console.log("New ECDH key pair generated and stored");
+            return keyPair;
+        }
+    }
+
+
     async function deriveSymmetricKey(privateKey, recipientPublicKey) {
         return await crypto.subtle.deriveKey(
             { name: "ECDH", public: recipientPublicKey },
@@ -375,15 +414,19 @@
         try {
 
             //for E2E chat, a public key registar
-            userKeyPair = await generateKeyPair();
-            let exportedPublic = await crypto.subtle.exportKey("jwk", userKeyPair.publicKey);
-            await fetch("/register_public_key", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username: username, public_key: JSON.stringify(exportedPublic) })
-            });
-            console.log("User ECDH key pair generated and public key registered.");
+            // userKeyPair = await generateKeyPair();
+            userKeyPair = await generateOrLoadKeyPair();
 
+            if (!sessionStorage.getItem("public_key_registered")) {
+                let exportedPublic = await crypto.subtle.exportKey("jwk", userKeyPair.publicKey);
+                await fetch("/register_public_key", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: username, public_key: JSON.stringify(exportedPublic) })
+                });
+                console.log("User ECDH key pair generated and public key registered.");
+                sessionStorage.setItem("public_key_registered", "true");
+            }
 
         } catch (error) {
             console.error(" Error registering public Key:", error);
@@ -861,7 +904,7 @@
         messagesDiv.innerHTML = "";
 
         // pulls persisted rows from CockroachDB
-        await loadHistory(chatId);
+        // await loadHistory(chatId);
 
         // Show or hide the DM E2E notice as appropriate:
         const dmInfo = document.getElementById("dm-info");
@@ -950,8 +993,55 @@
                         // Use the cached group key to decrypt the message
                         const groupKey = groupKeys[chatId];
                         if (!groupKey) {
-                            console.error("Missing group key for", chatId);
-                            return;
+                            console.log("Fetching missing group key for", chatId);
+                            const res = await fetch(`/group_key/${chatId}`);
+                            if (!res.ok) {
+                                console.error("Failed to fetch group key:", await res.text());
+                                return;
+                            }
+
+                            const { group_key, group_key_iv } = await res.json();
+
+                            const encryptedKeyBytes = Uint8Array.from(atob(group_key), c => c.charCodeAt(0));
+                            const ivBytes = Uint8Array.from(atob(group_key_iv), c => c.charCodeAt(0));
+
+                            // Derive symmetric key using your ECDH private key and sender's public key
+                            if (!recipientPublicKeys[sender]) {
+                                let res = await fetch(`/get_public_key/${sender}`);
+                                let pkData = await res.json();
+                                if (pkData.public_key) {
+                                    let importedKey = await crypto.subtle.importKey(
+                                        "jwk",
+                                        JSON.parse(pkData.public_key),
+                                        { name: "ECDH", namedCurve: "P-256" },
+                                        true,
+                                        [] 
+                                    );
+                                    recipientPublicKeys[sender] = importedKey;
+                                } else {
+                                    console.error("Recipient public key not found for", sender);
+                                    return;
+                                }
+                            }
+                            const senderPubKey = recipientPublicKeys[sender];
+                            const symmetricKey = await deriveSymmetricKey(userKeyPair.privateKey, senderPubKey);
+
+                            const decryptedKeyBuffer = await crypto.subtle.decrypt(
+                                { name: "AES-GCM", iv: ivBytes },
+                                symmetricKey,
+                                encryptedKeyBytes
+                            );
+
+                            const groupSymmetricKey = await crypto.subtle.importKey(
+                                "raw",
+                                decryptedKeyBuffer,
+                                { name: "AES-GCM", length: 256 },
+                                false,
+                                ["encrypt", "decrypt"]
+                            );
+
+                            groupKeys[chatId] = groupSymmetricKey;
+                            console.log("Group key imported and cached for", chatId);
                         }
                         try {
                             const plaintext = await decryptChatMessage(parsed.ciphertext, parsed.iv, groupKey);

@@ -264,6 +264,27 @@ def create_group(data: dict):
     }
     return {"chat_id": chat_id, "members": members}
 
+# Send requestor's encrypted group key
+@app.get("/group_key/{chat_id}")
+async def get_group_key(chat_id: str, request: Request):
+    username = request.session.get("username")
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    chat = GROUP_CHATS.get(chat_id)
+    if not chat or username not in chat["members"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    encrypted_key = chat["encrypted_keys"].get(username)
+    if not encrypted_key:
+        raise HTTPException(status_code=404, detail="Encrypted key not found for user")
+
+    return {
+        "group_key": encrypted_key["groupKey"],
+        "group_key_iv": encrypted_key["groupKeyiv"]
+    }
+
+
 @app.get("/leave")
 def leave(request: Request):
     request.session.pop("username", None)
