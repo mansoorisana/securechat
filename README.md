@@ -81,8 +81,18 @@ Firebase bucket:
 - Users are reconnected in case of interruptions.
 - Heartbeat mechanism to maintain persistent connections.
 
-### **4️⃣ Server & Database Deployment**  
+### **4️⃣ Server & Database Deployment**
+- **Render**  
+  - The FastAPI app and PostgreSQL‐compatible CockroachDB are both hosted on [Render.com](https://render.com).  
+  - Every push to `main` triggers an automatic build & deploy.  
+  - All secrets (e.g. `DATABASE_URL`, `SECRET_KEY`, `VIRUSTOTAL_API_KEY`) are stored in Render’s Environment settings.
 
+- **Database Setup**  
+  - We use SQLAlchemy’s `Base.metadata.create_all()` on startup to automatically create any missing tables (`user`, `message`, `log`, etc.).  
+  - Connection string is read from `DATABASE_URL`. Example:  
+    ```
+    postgresql://<user>:<pass>@<host>:26257/securechat?sslmode=require
+    ```
 
 ### **5️⃣ Rate Limiting & 24/7 Uptime Strategy**  
 - Prevents spamming by **limiting messages per user** & **login** requests.  
