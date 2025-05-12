@@ -17,7 +17,7 @@ It enables multiple users to connect, send messages, files instantly, and handle
 - **Quill Editor & Emoji Picker** - Provides rich text formatting and emoji support.
 
 - **Render** - Hosting FastAPI, templates and Websocket server.
-- **PostgreSQL** - Database storage service offered on Render.
+- **CockroachDB** - Database storage service that uses PostgreSQL structure. 
 - **UptimeRobot** - Uptime monitoring service.
 - **VirusTotal** - Scanning file uplaod for malware.
 - **Firebase** - Hosting uploaded files for each chat.
