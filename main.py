@@ -628,19 +628,13 @@ def get_chat_recipients(chat_id):
     return targets
 
 # ───  24/7 Uptime robot + head request handler ───────────────────
+@app.api_route("/", methods=["GET", "HEAD"])
+def root(request: Request):
+    return JSONResponse({"status": "ok"}, status_code=200)
 @app.get("/healthz")
 def healthz():
     """
     Health check for external monitors.
     Returns HTTP 200 + JSON.
     """
-    return {"status": "ok"}
-
-
-@app.head("/")               
-def head_root() -> Response:
-    return Response(status_code=200)
-
-@app.head("/healthz")        
-def head_healthz() -> Response:
-    return Response(status_code=200)
+    return JSONResponse({"status": "ok"}, status_code=200)
